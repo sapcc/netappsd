@@ -1,0 +1,10 @@
+.direnv/
+.vscode/
+.envrc
+.env
+
+bin/*
+degug
+
+!.keep
+
