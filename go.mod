@@ -19,14 +19,14 @@ require (
 	github.com/gogo/protobuf v0.0.0-20171123125729-971cbfd2e72b // indirect
 	github.com/golang/glog v0.0.0-20141105023935-44145f04b68c // indirect
 	github.com/google/gofuzz v0.0.0-20161122191042-44d81051d367 // indirect
-	github.com/hosting-de-labs/go-netbox v0.0.0-20181217095419-cc20d09bb8e0 // indirect
+	github.com/hosting-de-labs/go-netbox v0.0.0-20181217095419-cc20d09bb8e0
 	github.com/howeyc/gopass v0.0.0-20170109162249-bf9dde6d0d2c // indirect
 	github.com/imdario/mergo v0.3.7 // indirect
 	github.com/juju/ratelimit v0.0.0-20151125201925-77ed1c8a0121 // indirect
 	github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
-	github.com/sapcc/atlas v0.0.0-20190708085100-1750bb783bb9
+	github.com/sapcc/atlas v0.0.0-20190718153227-cddf55cf71ef
 	github.com/spf13/pflag v1.0.0 // indirect
 	github.com/ugorji/go v0.0.0-20170107133203-ded73eae5db7 // indirect
 	golang.org/x/crypto v0.0.0-20180904163835-0709b304e793 // indirect

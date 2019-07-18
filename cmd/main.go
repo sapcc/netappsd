@@ -5,6 +5,7 @@ import (
 
 	klog "github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
 	"github.com/sapcc/atlas/pkg/netbox"
 
 	"netappsd"
@@ -27,7 +28,14 @@ func main() {
 	logError(err)
 
 	netbox := newNetboxClient()
-	devices, err := netbox.DevicesByRegion("bm091", "netapp", "qa-de-1", "1")
+	params := dcim.NewDcimDevicesListParams()
+	role := "filer"
+	manufacturer := "netapp"
+	region := "qa-de-1"
+	params.WithRole(&role)
+	params.WithRegion(&region)
+	params.WithManufacturer(&manufacturer)
+	devices, err := netbox.ActiveDevicesByParams("bm091", params)
 	logError(err)
 	logger.Log("devices#", len(devices))
 }
