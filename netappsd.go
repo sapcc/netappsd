@@ -29,3 +29,7 @@ func NewConfigMapOutofCluster(cmName, namespace string, logger log.Logger) (cw *
 		ns:        namespace,
 	}, err
 }
+
+func run() string {
+	return "Hello"
+}
