@@ -17,7 +17,9 @@ require (
 	github.com/golang/glog v0.0.0-20141105023935-44145f04b68c // indirect
 	github.com/google/gofuzz v0.0.0-20161122191042-44d81051d367 // indirect
 	github.com/google/pprof v0.0.0-20190515194954-54271f7e092f // indirect
+	github.com/howeyc/gopass v0.0.0-20170109162249-bf9dde6d0d2c // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20181102032728-5e5cf60278f6 // indirect
+	github.com/imdario/mergo v0.3.7 // indirect
 	github.com/juju/ratelimit v0.0.0-20151125201925-77ed1c8a0121 // indirect
 	github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
