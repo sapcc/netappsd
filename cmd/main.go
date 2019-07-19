@@ -3,10 +3,9 @@ package main
 import (
 	"os"
 
+	"github.com/chuan137/go-netbox/netbox/client/dcim"
 	klog "github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
-	"github.com/sapcc/atlas/pkg/netbox"
 
 	"netappsd"
 )
@@ -35,7 +34,7 @@ func main() {
 	params.WithRole(&role)
 	params.WithRegion(&region)
 	params.WithManufacturer(&manufacturer)
-	devices, err := netbox.ActiveDevicesByParams("bm091", params)
+	devices, err := netbox.ActiveDevicesByParams("bb", params)
 	logError(err)
 	logger.Log("devices#", len(devices))
 }
@@ -53,8 +52,8 @@ func getFilers() netappsd.Filers {
 	return f
 }
 
-func newNetboxClient() *netbox.Netbox {
-	c, err := netbox.NewDefaultHost(` c1d40ae380689e55384c26f1e5303a36f618ca73`)
+func newNetboxClient() *netappsd.Netbox {
+	c, err := netappsd.NewNetbox(`c1d40ae380689e55384c26f1e5303a36f618ca73`)
 	logError(err)
 	return c
 }

@@ -3,6 +3,7 @@ module netappsd
 go 1.12
 
 require (
+	github.com/chuan137/go-netbox v0.0.0-20190719120111-0d6844d64686
 	github.com/docker/distribution v2.7.1+incompatible // indirect
 	github.com/emicklei/go-restful v0.0.0-20161212084525-09691a3b6378 // indirect
 	github.com/ghodss/yaml v0.0.0-20150909031657-73d445a93680 // indirect
@@ -11,7 +12,7 @@ require (
 	github.com/go-openapi/analysis v0.18.0 // indirect
 	github.com/go-openapi/errors v0.18.0 // indirect
 	github.com/go-openapi/loads v0.18.0 // indirect
-	github.com/go-openapi/runtime v0.18.0 // indirect
+	github.com/go-openapi/runtime v0.18.0
 	github.com/go-openapi/spec v0.18.0 // indirect
 	github.com/go-openapi/strfmt v0.18.0 // indirect
 	github.com/go-openapi/validate v0.18.0 // indirect
@@ -19,7 +20,6 @@ require (
 	github.com/gogo/protobuf v0.0.0-20171123125729-971cbfd2e72b // indirect
 	github.com/golang/glog v0.0.0-20141105023935-44145f04b68c // indirect
 	github.com/google/gofuzz v0.0.0-20161122191042-44d81051d367 // indirect
-	github.com/hosting-de-labs/go-netbox v0.0.0-20181217095419-cc20d09bb8e0
 	github.com/howeyc/gopass v0.0.0-20170109162249-bf9dde6d0d2c // indirect
 	github.com/imdario/mergo v0.3.7 // indirect
 	github.com/juju/ratelimit v0.0.0-20151125201925-77ed1c8a0121 // indirect
