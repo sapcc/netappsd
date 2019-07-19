@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/chuan137/go-netbox/netbox/client/dcim"
+	"github.com/chuan137/go-netbox/netbox/models"
 	klog "github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 
@@ -34,9 +35,15 @@ func main() {
 	params.WithRole(&role)
 	params.WithRegion(&region)
 	params.WithManufacturer(&manufacturer)
-	devices, err := netbox.ActiveDevicesByParams("bb", params)
+	devices, err := netbox.ActiveDevicesByParams("bb093", params)
+	var filerDevices []models.Device
+	for _, d := range devices {
+		if d.ParentDevice == nil {
+			filerDevices = append(filerDevices, d)
+		}
+	}
 	logError(err)
-	logger.Log("devices#", len(devices))
+	logger.Log("filers#", len(filerDevices))
 }
 
 func logError(err error) {

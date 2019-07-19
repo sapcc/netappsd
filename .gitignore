@@ -4,7 +4,7 @@
 .env
 
 bin/*
-degug
+debug
 
 !.keep
 
