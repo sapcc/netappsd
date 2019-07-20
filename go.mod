@@ -26,7 +26,7 @@ require (
 	github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
-	github.com/sapcc/atlas v0.0.0-20190718153227-cddf55cf71ef
+	github.com/sapcc/atlas v0.0.0-20190720110036-ec4b161b2da8
 	github.com/spf13/pflag v1.0.0 // indirect
 	github.com/ugorji/go v0.0.0-20170107133203-ded73eae5db7 // indirect
 	golang.org/x/crypto v0.0.0-20180904163835-0709b304e793 // indirect
