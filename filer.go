@@ -12,7 +12,7 @@ type Filer struct {
 	Host string `json:"host" yaml:"host"`
 }
 
-type Filers []*Filer
+type Filers []Filer
 
 func (f Filers) JsonString() string {
 	s, err := json.Marshal(f)

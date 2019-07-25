@@ -1,10 +1,13 @@
 package main
 
 import (
+	"flag"
+	"log"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/chuan137/go-netbox/netbox/client/dcim"
-	"github.com/chuan137/go-netbox/netbox/models"
 	klog "github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 
@@ -12,38 +15,67 @@ import (
 )
 
 var (
-	logger klog.Logger
+	logger        klog.Logger
+	namespace     string
+	configmapName string
+	configmapKey  string
+	local         bool
 )
 
 func init() {
 	logger = klog.NewLogfmtLogger(klog.NewSyncWriter(os.Stdout))
+	flag.StringVar(&namespace, "namespace", "", "namespace")
+	flag.StringVar(&configmapName, "configmap", "netapp-perf-etc", "configmap name")
+	flag.StringVar(&configmapKey, "key", "netapp-filers.yaml", "configmap key")
+	flag.BoolVar(&local, "local", false, "run program out of cluster")
+	flag.Parse()
+
+	if namespace == "" {
+		log.Fatal("flag namespace must be specified")
+	}
 }
 
 func main() {
-	cm, err := netappsd.NewConfigMapOutofCluster("test-cm", "netapp2", logger)
-	logError(err)
+	tick := time.Tick(5 * time.Minute)
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 
-	filers := getFilers()
-	err = cm.Write("netapp-filers.conf", filers.YamlString())
-	logError(err)
+	var cm *netappsd.ConfigMap
+	var err error
+	if local {
+		cm, err = netappsd.NewConfigMapOutofCluster(configmapName, namespace, logger)
+		logError(err)
+	} else {
+		cm, err = netappsd.NewConfigMap(configmapName, namespace, logger)
+		logError(err)
+	}
 
-	netbox := newNetboxClient()
-	params := dcim.NewDcimDevicesListParams()
-	role := "filer"
-	manufacturer := "netapp"
-	region := "qa-de-1"
-	params.WithRole(&role)
-	params.WithRegion(&region)
-	params.WithManufacturer(&manufacturer)
-	devices, err := netbox.ActiveDevicesByParams("bb093", params)
-	var filerDevices []models.Device
-	for _, d := range devices {
-		if d.ParentDevice == nil {
-			filerDevices = append(filerDevices, d)
+	var filers netappsd.Filers
+	netboxClient := newNetboxClient()
+
+	for {
+		newFilers, err := netboxClient.QueryNetappFilers("bb", "qa-de-1")
+		if err != nil {
+			level.Error(logger).Log("msg", err)
+		} else {
+			for _, f := range newFilers {
+				level.Info(logger).Log("filer", f.Host)
+			}
+			if compareFilers(filers, newFilers) {
+				cm.Write(configmapKey, newFilers.YamlString())
+				filers = newFilers
+			}
+		}
+
+		select {
+		case <-tick:
+			log.Println("tick")
+			continue
+		case sig := <-interrupt:
+			log.Println(sig, "signal received")
+			os.Exit(1)
 		}
 	}
-	logError(err)
-	logger.Log("filers#", len(filerDevices))
 }
 
 func logError(err error) {
@@ -52,11 +84,24 @@ func logError(err error) {
 	}
 }
 
-func getFilers() netappsd.Filers {
-	f := make(netappsd.Filers, 0)
-	f = append(f, &netappsd.Filer{Name: "bb98", Host: "netapp-bb98.cloud.sap"})
-	f = append(f, &netappsd.Filer{Name: "bb99", Host: "netapp-bb99.cloud.sap"})
-	return f
+// CompareFilers returns true when the lists are not equal
+func compareFilers(f, g netappsd.Filers) bool {
+	if len(f) != len(g) {
+		return true
+	}
+	diff := make(map[string]int)
+	for _, ff := range f {
+		diff[ff.Name]++
+	}
+	for _, gg := range g {
+		diff[gg.Name]--
+	}
+	for _, v := range diff {
+		if v != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func newNetboxClient() *netappsd.Netbox {
