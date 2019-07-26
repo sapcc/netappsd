@@ -1,5 +1,5 @@
 IMAGE_NAME=hub.global.cloud.sap/monsoon/netappsd
-IMAGE_TAG=v0.1.0
+IMAGE_TAG=v0.1.1
 
 all: build
 

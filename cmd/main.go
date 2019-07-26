@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -16,27 +17,39 @@ import (
 
 var (
 	logger        klog.Logger
+	query         string
+	region        string
 	namespace     string
 	configmapName string
 	configmapKey  string
+	netboxURL     string
 	netboxToken   string
 	local         bool
 )
 
 func init() {
 	logger = klog.NewLogfmtLogger(klog.NewSyncWriter(os.Stdout))
+	flag.StringVar(&query, "query", "", "query")
+	flag.StringVar(&region, "region", "", "region")
 	flag.StringVar(&namespace, "namespace", "", "namespace")
 	flag.StringVar(&configmapName, "configmap", "netapp-perf-etc", "configmap name")
 	flag.StringVar(&configmapKey, "key", "netapp-filers.yaml", "configmap key")
-	flag.StringVar(&netboxToken, "token", "", "netbox token")
+	flag.StringVar(&netboxURL, "netbox-url", "", "netbox url")
+	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
 	flag.BoolVar(&local, "local", false, "run program out of cluster")
 	flag.Parse()
 
 	if namespace == "" {
 		log.Fatal("flag namespace must be specified")
 	}
+	if netboxURL == "" {
+		log.Fatal("netbox url must be specified")
+	}
 	if netboxToken == "" {
 		log.Fatal("netbox token must be specified")
+	}
+	if region == "" {
+		log.Fatal("region must be specified")
 	}
 }
 
@@ -47,6 +60,7 @@ func main() {
 
 	var cm *netappsd.ConfigMap
 	var err error
+	level.Info(logger).Log("msg", fmt.Sprintf("create writer to configmap: %s", configmapName))
 	if local {
 		cm, err = netappsd.NewConfigMapOutofCluster(configmapName, namespace, logger)
 		logError(err)
@@ -59,23 +73,33 @@ func main() {
 	netboxClient := newNetboxClient()
 
 	for {
-		newFilers, err := netboxClient.QueryNetappFilers("bb", "qa-de-1")
+		newFilers, err := netboxClient.QueryNetappFilers(query, region)
 		if err != nil {
 			level.Error(logger).Log("msg", err)
 		} else {
 			for _, f := range newFilers {
 				level.Info(logger).Log("filer", f.Host)
 			}
+			ff, err := cm.GetData(configmapKey)
+			if err != nil {
+				level.Error(logger).Log(err)
+			} else {
+				level.Info(logger).Log(ff)
+			}
 			if compareFilers(filers, newFilers) {
-				cm.Write(configmapKey, newFilers.YamlString())
-				filers = newFilers
+				level.Info(logger).Log("msg", fmt.Sprintf("update configmap key: %s", configmapKey))
+				err := cm.Write(configmapKey, newFilers.YamlString())
+				if err != nil {
+					level.Error(logger).Log(err)
+				} else {
+					filers = newFilers
+				}
 			}
 		}
 
 		select {
 		case <-tick:
 			log.Println("tick")
-			continue
 		case sig := <-interrupt:
 			log.Println(sig, "signal received")
 			os.Exit(1)
