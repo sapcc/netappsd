@@ -9,14 +9,12 @@ import (
 	runtimeclient "github.com/go-openapi/runtime/client"
 )
 
-const netboxDefaultHost = "netbox.global.cloud.sap"
-
 type Netbox struct {
 	client *netboxclient.NetBox
 }
 
-func NewNetbox(token string) (*Netbox, error) {
-	return newNetbox(netboxDefaultHost, token)
+func NewNetbox(netboxHost, token string) (*Netbox, error) {
+	return newNetbox(netboxHost, token)
 }
 
 func newNetbox(host, token string) (*Netbox, error) {

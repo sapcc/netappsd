@@ -22,7 +22,7 @@ var (
 	namespace     string
 	configmapName string
 	configmapKey  string
-	netboxURL     string
+	netboxHost    string
 	netboxToken   string
 	local         bool
 )
@@ -34,7 +34,7 @@ func init() {
 	flag.StringVar(&namespace, "namespace", "", "namespace")
 	flag.StringVar(&configmapName, "configmap", "netapp-perf-etc", "configmap name")
 	flag.StringVar(&configmapKey, "key", "netapp-filers.yaml", "configmap key")
-	flag.StringVar(&netboxURL, "netbox-url", "", "netbox url")
+	flag.StringVar(&netboxHost, "netbox-host", "", "netbox host")
 	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
 	flag.BoolVar(&local, "local", false, "run program out of cluster")
 	flag.Parse()
@@ -42,8 +42,8 @@ func init() {
 	if namespace == "" {
 		log.Fatal("flag namespace must be specified")
 	}
-	if netboxURL == "" {
-		log.Fatal("netbox url must be specified")
+	if netboxHost == "" {
+		log.Fatal("netbox host must be specified")
 	}
 	if netboxToken == "" {
 		log.Fatal("netbox token must be specified")
@@ -134,7 +134,7 @@ func compareFilers(f, g netappsd.Filers) bool {
 }
 
 func newNetboxClient() *netappsd.Netbox {
-	c, err := netappsd.NewNetbox(netboxToken)
+	c, err := netappsd.NewNetbox(netboxHost, netboxToken)
 	logError(err)
 	return c
 }
