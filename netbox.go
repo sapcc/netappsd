@@ -2,7 +2,6 @@ package netappsd
 
 import (
 	"fmt"
-	"strings"
 
 	netboxclient "github.com/chuan137/go-netbox/netbox/client"
 	"github.com/chuan137/go-netbox/netbox/client/dcim"
@@ -83,32 +82,11 @@ func (nb *Netbox) QueryNetappFilers(query, region string) (Filers, error) {
 	filers := make(Filers, 0)
 	for _, d := range devices {
 		if d.ParentDevice == nil {
-			if genFilerHost(*d.Name) != "" {
-				filers = append(filers, Filer{
-					Name: *d.Name,
-					Host: genFilerHost(*d.Name) + ".cc." + region + ".cloud.sap",
-				})
-			}
+			filers = append(filers, Filer{
+				Name: *d.Name,
+				Host: *d.Name + ".cc." + region + ".cloud.sap",
+			})
 		}
 	}
 	return filers, nil
-}
-
-func genFilerHost(name string) string {
-	var host string
-
-	ss := strings.Split(name, "-")
-	if len(ss) != 2 {
-		host = ""
-	} else if ss[0] == "stnpca" {
-		host = "stnpac1" + "-" + ss[1]
-	} else if ss[0] == "stnpa1" {
-		host = "stnpac1" + "-" + ss[1]
-	} else if ss[0] == "stnpa2" {
-		host = "stnpac2" + "-" + ss[1]
-	} else {
-		host = ss[0] + "-" + ss[1]
-	}
-
-	return host
 }
