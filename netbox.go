@@ -3,10 +3,10 @@ package netappsd
 import (
 	"fmt"
 
-	netboxclient "github.com/chuan137/go-netbox/netbox/client"
-	"github.com/chuan137/go-netbox/netbox/client/dcim"
-	"github.com/chuan137/go-netbox/netbox/models"
 	runtimeclient "github.com/go-openapi/runtime/client"
+	netboxclient "github.com/hosting-de-labs/go-netbox/netbox/client"
+	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
+	"github.com/hosting-de-labs/go-netbox/netbox/models"
 )
 
 type Netbox struct {
