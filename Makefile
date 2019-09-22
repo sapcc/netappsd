@@ -1,11 +1,14 @@
-IMAGE_NAME=hub.global.cloud.sap/monsoon/netappsd
-IMAGE_TAG=v0.1.1
+IMAGE_NAME:=hub.global.cloud.sap/monsoon/netappsd
+BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
+HASH := $(shell git rev-parse HEAD | head -c 7)
 
-all: build
+IMAGE_TAG := ${BRANCH}-${HASH}
+
+all: build docker
 
 build: bin/netappsd
 
-bin/netappsd: cmd/*.go
+bin/netappsd: cmd/*.go *.go
 	go build -o $@ cmd/main.go 
 
 bin/netappsd-linux: cmd/*.go
@@ -19,4 +22,3 @@ docker: Dockerfile bin/netappsd-linux
 
 clean:
 	rm -f bin/*
-
