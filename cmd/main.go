@@ -11,6 +11,8 @@ import (
 
 	klog "github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
+	"github.com/sapcc/atlas/pkg/netbox"
 
 	"netappsd"
 )
@@ -70,10 +72,15 @@ func main() {
 	}
 
 	var filers netappsd.Filers
-	netboxClient := newNetboxClient()
+	var nb *netbox.Netbox
+
+	nb, err = netbox.New(netboxHost, netboxToken)
+	if err != nil {
+		level.Error(logger).Log("msg", err)
+	}
 
 	for {
-		newFilers, err := netboxClient.QueryNetappFilers(query, region)
+		newFilers, err := queryNetappFilers(nb, query, region)
 		if err != nil {
 			level.Error(logger).Log("msg", err)
 		} else {
@@ -133,8 +140,31 @@ func compareFilers(f, g netappsd.Filers) bool {
 	return false
 }
 
-func newNetboxClient() *netappsd.Netbox {
-	c, err := netappsd.NewNetbox(netboxHost, netboxToken)
-	logError(err)
-	return c
+func queryNetappFilers(nb *netbox.Netbox, query, region string) (netappsd.Filers, error) {
+	params := dcim.NewDcimDevicesListParams()
+	role := "filer"
+	manufacturer := "netapp"
+	status := "1" // active
+	params.WithQ(&query)
+	params.WithRole(&role)
+	params.WithRegion(&region)
+	params.WithManufacturer(&manufacturer)
+	params.WithStatus(&status)
+	devices, err := nb.DevicesByParams(*params)
+	if err != nil {
+		return nil, err
+	}
+
+	// hostnames/ips are not maintained in netbox for the filers, we have to
+	// rely on the name of filers to determin the hosts
+	filers := make(netappsd.Filers, 0)
+	for _, d := range devices {
+		if d.ParentDevice == nil {
+			filers = append(filers, netappsd.Filer{
+				Name: *d.Name,
+				Host: *d.Name + ".cc." + region + ".cloud.sap",
+			})
+		}
+	}
+	return filers, nil
 }
