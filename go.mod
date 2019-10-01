@@ -3,7 +3,6 @@ module netappsd
 go 1.12
 
 require (
-	github.com/chuan137/go-netbox v0.0.0-20190719120111-0d6844d64686
 	github.com/go-kit/kit v0.8.0
 	github.com/go-openapi/runtime v0.19.3
 	github.com/hosting-de-labs/go-netbox v0.0.0-20190806143433-dd6a857021ad

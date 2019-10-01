@@ -4,7 +4,7 @@ HASH := $(shell git rev-parse HEAD | head -c 7)
 
 IMAGE_TAG := ${BRANCH}-${HASH}
 
-all: build docker
+all: build
 
 build: bin/netappsd
 
