@@ -12,10 +12,18 @@ type Filer struct {
 	Host string `json:"host" yaml:"host"`
 }
 
-type Filers []Filer
+type Filers map[string]Filer
+
+func (f Filers) list() []Filer {
+	lf := make([]Filer, 0)
+	for _, ff := range f {
+		lf = append(lf, ff)
+	}
+	return lf
+}
 
 func (f Filers) JsonString() string {
-	s, err := json.Marshal(f)
+	s, err := json.Marshal(f.list())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -23,7 +31,7 @@ func (f Filers) JsonString() string {
 }
 
 func (f Filers) YamlString() string {
-	s, err := yaml.Marshal(f)
+	s, err := yaml.Marshal(f.list())
 	if err != nil {
 		log.Fatal(err)
 	}

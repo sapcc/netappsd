@@ -162,10 +162,10 @@ func queryNetappFilers(nb *netbox.Netbox, query, region string) (netappsd.Filers
 	filers := make(netappsd.Filers, 0)
 	for _, d := range devices {
 		if d.ParentDevice == nil {
-			filers = append(filers, netappsd.Filer{
+			filers[*d.Name] = netappsd.Filer{
 				Name: *d.Name,
 				Host: *d.Name + ".cc." + region + ".cloud.sap",
-			})
+			}
 		}
 	}
 	return filers, nil
