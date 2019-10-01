@@ -13,6 +13,7 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
 	"github.com/sapcc/atlas/pkg/netbox"
+	cmwriter "github.com/sapcc/atlas/pkg/writer"
 
 	"netappsd"
 )
@@ -60,11 +61,12 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 
-	var cm *netappsd.ConfigMap
+	var cm cmwriter.Writer
 	var err error
 	level.Info(logger).Log("msg", fmt.Sprintf("create writer to configmap: %s", configmapName))
 	if local {
-		cm, err = netappsd.NewConfigMapOutofCluster(configmapName, namespace, logger)
+		// cm, err = netappsd.NewConfigMapOutofCluster(configmapName, namespace, logger)
+		cm, err = cmwriter.NewFile(namespace+"_"+configmapName+".out", logger)
 		logError(err)
 	} else {
 		cm, err = netappsd.NewConfigMap(configmapName, namespace, logger)

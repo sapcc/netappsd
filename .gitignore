@@ -5,6 +5,7 @@
 
 bin/*
 debug
+*.out
 
 !.keep
 
