@@ -2,7 +2,7 @@ IMAGE_NAME:=hub.global.cloud.sap/monsoon/netappsd
 BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 HASH := $(shell git rev-parse HEAD | head -c 7)
 
-IMAGE_TAG := ${BRANCH}-${HASH}
+IMAGE_TAG:=v$(shell date -u +%Y%m%d%H%M%S)-$(BRANCH)-$(HASH)
 
 all: build
 
