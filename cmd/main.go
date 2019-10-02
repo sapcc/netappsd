@@ -79,7 +79,7 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 	for {
-		updated, err := filers.QueryNetbox(nb, query, region)
+		updated, err := filers.QueryNetbox(nb, region, query)
 		logError(err)
 		// write filers when there are updates
 		if updated {
@@ -107,46 +107,3 @@ func logErrorAndExit(err error) {
 		os.Exit(1)
 	}
 }
-
-// newFilers, err := queryNetappFilers(nb, query, region)
-// if err != nil {
-// 	level.Error(logger).Log("msg", err)
-// } else {
-// 	for _, f := range newFilers {
-// 		level.Info(logger).Log("filer", f.Host)
-// 	}
-// 	ff, err := cm.GetData(configmapKey)
-// 	if err != nil {
-// 		level.Error(logger).Log(err)
-// 	} else {
-// 		level.Info(logger).Log(ff)
-// 	}
-// 	if compareFilers(filers, newFilers) {
-// 		level.Info(logger).Log("msg", fmt.Sprintf("update configmap key: %s", configmapKey))
-// 		err := cm.Write(configmapKey, newFilers.YamlString())
-// 		if err != nil {
-// 			level.Error(logger).Log(err)
-// 		} else {
-// 			filers = newFilers
-// 		}
-// 	}
-// }
-// // CompareFilers returns true when the lists are not equal
-// func compareFilers(f, g netappsd.Filers) bool {
-// 	if len(f) != len(g) {
-// 		return true
-// 	}
-// 	diff := make(map[string]int)
-// 	for _, ff := range f {
-// 		diff[ff.Name]++
-// 	}
-// 	for _, gg := range g {
-// 		diff[gg.Name]--
-// 	}
-// 	for _, v := range diff {
-// 		if v != 0 {
-// 			return true
-// 		}
-// 	}
-// 	return false
-// }
