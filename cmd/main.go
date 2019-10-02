@@ -65,7 +65,7 @@ func main() {
 		// cm, err = netappsd.NewConfigMapOutofCluster(configmapName, namespace, logger)
 		cm, err = cmwriter.NewFile(namespace+"_"+configmapName+".out", logger)
 	} else {
-		cm, err = netappsd.NewConfigMap(configmapName, namespace, logger)
+		cm, err = cmwriter.NewConfigMap(configmapName, namespace, logger)
 	}
 	logErrorAndExit(err)
 
