@@ -3,7 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/heptiolabs/healthcheck"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -54,13 +56,21 @@ func init() {
 }
 
 func main() {
-	var cm cmwriter.Writer
-	var err error
+	var (
+		cm                 cmwriter.Writer
+		err                error
+		nbQueryReturnsData bool
+	)
+
+	// create liveness check. Watch netbox query results.
+	health := healthcheck.NewHandler()
+	health.AddReadinessCheck("netbox query", ValueCheck(&nbQueryReturnsData))
+	go logError(http.ListenAndServe("0.0.0.0:8086", health))
 
 	// create configmap writer
-	level.Info(logger).Log("msg", fmt.Sprintf("create writer to configmap: %s", configmapName))
+	_ = level.Info(logger).Log("msg", fmt.Sprintf("create writer to configmap: %s", configmapName))
 	if local {
-		// cm, err = netappsd.NewConfigMapOutofCluster(configmapName, namespace, logger)
+		// cm, err = netappsd.NewConfigMapOutofCluster(configmapName, namespace logger)
 		cm, err = cmwriter.NewFile(namespace+"_"+configmapName+".out", logger)
 	} else {
 		cm, err = cmwriter.NewConfigMap(configmapName, namespace, logger)
@@ -77,10 +87,10 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 	for {
-		updated, err := filers.QueryNetbox(nb, region, query)
+		nbQueryReturnsData, err = filers.QueryNetbox(nb, region, query)
 		logError(err)
 		// write filers when there are updates
-		if updated {
+		if nbQueryReturnsData {
 			logError(cm.Write(configmapKey, filers.YamlString()))
 		}
 		select {
@@ -95,13 +105,13 @@ func main() {
 
 func logError(err error) {
 	if err != nil {
-		level.Error(logger).Log("msg", err)
+		_ = level.Error(logger).Log("msg", err)
 	}
 }
 
 func logErrorAndExit(err error) {
 	if err != nil {
-		level.Error(logger).Log("msg", err)
+		_ = level.Error(logger).Log("msg", err)
 		os.Exit(1)
 	}
 }
