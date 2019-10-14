@@ -1,4 +1,5 @@
 .direnv/
+.idea/
 .vscode/
 .envrc
 .env
