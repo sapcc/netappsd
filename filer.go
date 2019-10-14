@@ -1,4 +1,4 @@
-package netappsd
+package main
 
 import (
 	"encoding/json"

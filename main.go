@@ -13,8 +13,6 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/sapcc/atlas/pkg/netbox"
 	cmwriter "github.com/sapcc/atlas/pkg/writer"
-
-	"netappsd"
 )
 
 var (
@@ -74,7 +72,7 @@ func main() {
 	logErrorAndExit(err)
 
 	// query netbox periodically and update configmap
-	filers := netappsd.NewFilers()
+	filers := NewFilers()
 	tick := time.Tick(5 * time.Minute)
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
