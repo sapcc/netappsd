@@ -2,9 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/hosting-de-labs/go-netbox/netbox/models"
 	"log"
 
-	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
 	"github.com/sapcc/atlas/pkg/netbox"
 	"gopkg.in/yaml.v2"
 )
@@ -44,20 +45,42 @@ func (f Filers) YamlString() string {
 	return string(s)
 }
 
-func (f Filers) QueryNetbox(nb *netbox.Netbox, region, query string) (updated bool, err error) {
-	nf, err := queryNetbox(nb, region, query)
+func (f Filers) Fetch(nb *netbox.Netbox, region, query string) (updated bool, err error) {
+	var (
+		devices []models.Device
+	)
+	switch query {
+	case "md":
+		devices, err = getManilaFilers(nb, region)
+	case "bb":
+		devices, err = getCinderFilers(nb, region)
+	case "bm":
+		devices, err = getBareMetalFilers(nb, region)
+	case "cp":
+		devices, err = getControlPlaneFilers(nb, region)
+	default:
+		return false, fmt.Errorf("%s is not valide filer type", query)
+	}
 	if err != nil {
 		return false, err
 	}
 
-	updates := make(map[string]bool)
+	// hostnames/ips are not maintained in netbox for the filers, we have to
+	// rely on the name of filers to determin the hosts
+	nf := make(map[string]Filer, 0)
+	for _, d := range devices {
+		nf[*d.Name] = Filer{
+			Name: *d.Name,
+			Host: *d.Name + ".cc." + region + ".cloud.sap",
+		}
+	}
 
 	// remove filers that exist no longer
 	l := make([]string, 0)
 	for _, d := range f {
 		if _, ok := nf[d.Name]; !ok {
 			l = append(l, d.Name)
-			updates[d.Name] = true
+			updated = true
 		}
 	}
 	for _, n := range l {
@@ -68,45 +91,9 @@ func (f Filers) QueryNetbox(nb *netbox.Netbox, region, query string) (updated bo
 	for _, d := range nf {
 		if _, ok := f[d.Name]; !ok {
 			f[d.Name] = d
-			updates[d.Name] = true
+			updated = true
 		}
-	}
-
-	// updated?
-	if len(updates) > 0 {
-		updated = true
-	} else {
-		updated = false
 	}
 
 	return updated, nil
-}
-
-func queryNetbox(nb *netbox.Netbox, region, query string) (Filers, error) {
-	params := dcim.NewDcimDevicesListParams()
-	role := "filer"
-	manufacturer := "netapp"
-	status := "1" // active
-	interfaces := "False"
-	params.WithQ(&query)
-	params.WithRole(&role)
-	params.WithRegion(&region)
-	params.WithManufacturer(&manufacturer)
-	params.WithStatus(&status)
-	params.WithInterfaces(&interfaces)
-	devices, err := nb.DevicesByParams(*params)
-	if err != nil {
-		return nil, err
-	}
-
-	// hostnames/ips are not maintained in netbox for the filers, we have to
-	// rely on the name of filers to determin the hosts
-	fl := make(map[string]Filer, 0)
-	for _, d := range devices {
-		fl[*d.Name] = Filer{
-			Name: *d.Name,
-			Host: *d.Name + ".cc." + region + ".cloud.sap",
-		}
-	}
-	return fl, nil
 }
