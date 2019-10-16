@@ -57,14 +57,14 @@ func init() {
 
 func main() {
 	var (
-		cm      cmwriter.Writer
-		err     error
-		updated bool
+		cm            cmwriter.Writer
+		err           error
+		filersFetched bool
 	)
 
 	// create liveness check. Watch netbox query results.
 	health := healthcheck.NewHandler()
-	health.AddReadinessCheck("netbox query", ValueCheck(&updated))
+	health.AddReadinessCheck("netbox query", ValueCheck(&filersFetched))
 	go logError(http.ListenAndServe("0.0.0.0:8086", health))
 
 	// create configmap writer
@@ -87,11 +87,16 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 	for {
-		updated, err = filers.Fetch(nb, region, query)
+		updated, err := filers.Fetch(nb, region, query)
 		logError(err)
 		// write filers when there are updates
 		if updated {
 			logError(cm.Write(configmapKey, filers.YamlString()))
+		}
+		if len(filers) > 0 {
+			filersFetched = true
+		} else {
+			filersFetched = false
 		}
 		select {
 		case <-tick:
