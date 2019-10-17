@@ -3,9 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/heptiolabs/healthcheck"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -57,20 +55,13 @@ func init() {
 
 func main() {
 	var (
-		cm            cmwriter.Writer
-		err           error
-		filersFetched bool
+		cm  cmwriter.Writer
+		err error
 	)
-
-	// create liveness check. Watch netbox query results.
-	health := healthcheck.NewHandler()
-	health.AddReadinessCheck("netbox query", ValueCheck(&filersFetched))
-	go logError(http.ListenAndServe("0.0.0.0:8086", health))
 
 	// create configmap writer
 	_ = level.Info(logger).Log("msg", fmt.Sprintf("create writer to configmap: %s", configmapName))
 	if local {
-		// cm, err = netappsd.NewConfigMapOutofCluster(configmapName, namespace logger)
 		cm, err = cmwriter.NewFile(namespace+"_"+configmapName+".out", logger)
 	} else {
 		cm, err = cmwriter.NewConfigMap(configmapName, namespace, logger)
@@ -92,11 +83,6 @@ func main() {
 		// write filers when there are updates
 		if updated {
 			logError(cm.Write(configmapKey, filers.YamlString()))
-		}
-		if len(filers) > 0 {
-			filersFetched = true
-		} else {
-			filersFetched = false
 		}
 		select {
 		case <-tick:
