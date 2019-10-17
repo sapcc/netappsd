@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
 	"github.com/hosting-de-labs/go-netbox/netbox/models"
 	"github.com/sapcc/atlas/pkg/netbox"
@@ -19,6 +20,38 @@ var (
 		Interfaces:   &interfaces,
 	}
 )
+
+func GetFilers(nb *netbox.Netbox, region, query string) (filers Filers, err error) {
+	var (
+		devices []models.Device
+	)
+	switch query {
+	case "md":
+		devices, err = getManilaFilers(nb, region)
+	case "bb":
+		devices, err = getCinderFilers(nb, region)
+	case "bm":
+		devices, err = getBareMetalFilers(nb, region)
+	case "cp":
+		devices, err = getControlPlaneFilers(nb, region)
+	default:
+		return nil, fmt.Errorf("%s is not valide filer type", query)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// hostnames/ips are not maintained in netbox for the filers, we have to
+	// rely on the name of filers to determin the hosts
+	filers = Filers{}
+	for _, d := range devices {
+		filers[*d.Name] = Filer{
+			Name: *d.Name,
+			Host: *d.Name + ".cc." + region + ".cloud.sap",
+		}
+	}
+	return filers, nil
+}
 
 func getManilaFilers(nb *netbox.Netbox, region string) ([]models.Device, error) {
 	query := "md"
