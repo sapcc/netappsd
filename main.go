@@ -65,9 +65,11 @@ func main() {
 	// create configmap writer
 	_ = level.Info(logger).Log("msg", fmt.Sprintf("create writer to configmap: %s", configmapName))
 	if local {
+		logger = level.NewFilter(logger, level.AllowAll())
 		filerName := namespace + "_" + configmapName + ".out"
 		cm, err = cmwriter.NewFile(filerName, logger)
 	} else {
+		logger = level.NewFilter(logger, level.AllowInfo())
 		cm, err = cmwriter.NewConfigMap(configmapName, namespace, logger)
 	}
 	logErrorAndExit(err)
@@ -88,7 +90,12 @@ func main() {
 			_ = level.Error(logger).Log("msg", err)
 		} else if !reflect.DeepEqual(oldfilers, filers) {
 			_ = level.Info(logger).Log("msg", "update configMap "+configmapName)
-			logError(cm.Write(configmapKey, filers.YamlString()))
+			err = cm.Write(configmapKey, filers.YamlString())
+			if err != nil {
+				_ = level.Error(logger).Log("error", err)
+			} else {
+				_ = level.Info(logger).Log("msg", filers.JsonString())
+			}
 		}
 
 		select {
@@ -98,12 +105,6 @@ func main() {
 			log.Println(sig, "signal received")
 			os.Exit(1)
 		}
-	}
-}
-
-func logError(err error) {
-	if err != nil {
-		_ = level.Error(logger).Log("msg", err)
 	}
 }
 
