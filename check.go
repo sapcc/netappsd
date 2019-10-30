@@ -5,10 +5,10 @@ import (
 	"github.com/heptiolabs/healthcheck"
 )
 
-func ValueCheck(v *bool) healthcheck.Check {
+func ValueCheck(msg string, fn func() bool) healthcheck.Check {
 	return func() error {
-		if !*v {
-			return fmt.Errorf("netbox query returns no data")
+		if ck := fn(); !ck {
+			return fmt.Errorf(msg)
 		}
 		return nil
 	}

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 
 	klog "github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	"github.com/heptiolabs/healthcheck"
 	"github.com/sapcc/atlas/pkg/netbox"
 	cmwriter "github.com/sapcc/atlas/pkg/writer"
 )
@@ -26,6 +28,7 @@ var (
 	netboxHost    string
 	netboxToken   string
 	local         bool
+	cmUpdated     bool
 )
 
 func init() {
@@ -56,11 +59,19 @@ func init() {
 
 func main() {
 	var (
-		cm        cmwriter.Writer
-		err       error
-		filers    Filers
-		oldfilers Filers
+		cm     cmwriter.Writer
+		err    error
+		filers Filers
 	)
+
+	health := healthcheck.NewHandler()
+	health.AddLivenessCheck("configmap-updated", ValueCheck("configmap updated", func() bool {
+		// return false on updating configmap
+		return !cmUpdated
+	}))
+
+	// serve health check at :8086/live and :8086/ready
+	go http.ListenAndServe("0.0.0.0:8086", health)
 
 	// create configmap writer
 	_ = level.Info(logger).Log("msg", fmt.Sprintf("create writer to configmap: %s", configmapName))
@@ -83,17 +94,37 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 	for {
-		// fetch filers and write filers when there are updates
-		oldfilers = filers
-		filers, err = GetFilers(nb, region, query)
+		writeFiler := false
+
+		// query netbox for filers
+		newFilers, err := GetFilers(nb, region, query)
 		if err != nil {
 			_ = level.Error(logger).Log("msg", err)
-		} else if !reflect.DeepEqual(oldfilers, filers) {
-			_ = level.Info(logger).Log("msg", "update configMap "+configmapName)
-			err = cm.Write(configmapKey, filers.YamlString())
+		}
+
+		if newFilers == nil {
+			_ = level.Warn(logger).Log("msg", "No filers found")
+		} else {
+			if reflect.DeepEqual(newFilers, filers) {
+				_ = level.Info(logger).Log("msg", "Filers are not changed")
+			} else {
+				writeFiler = true
+			}
+		}
+
+		// write filers to configmap
+		if writeFiler {
+			err = cm.Write(configmapKey, newFilers.YamlString())
 			if err != nil {
 				_ = level.Error(logger).Log("error", err)
 			} else {
+				// don't set cmUpdated for liveness probe when the filers
+				// are written to configmap for the first time
+				if filers != nil {
+					cmUpdated = true
+				}
+
+				filers = newFilers
 				_ = level.Info(logger).Log("msg", filers.JsonString())
 			}
 		}
