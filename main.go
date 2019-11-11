@@ -123,7 +123,7 @@ func main() {
 			logger.Warn("No filers found")
 		} else {
 			if reflect.DeepEqual(newFilers, filers) {
-				logger.Info("Filers are not changed")
+				logger.Debug("Filers are not changed")
 			} else {
 				writeFiler = true
 			}
@@ -142,7 +142,7 @@ func main() {
 				}
 
 				filers = newFilers
-				logger.Debug(filers.JsonString())
+				logger.Info(filers.JsonString())
 			}
 		}
 
