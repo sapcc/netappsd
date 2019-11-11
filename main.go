@@ -2,8 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,14 +10,16 @@ import (
 	"time"
 
 	klog "github.com/go-kit/kit/log"
-	"github.com/go-kit/kit/log/level"
+	klogrus "github.com/go-kit/kit/log/logrus"
 	"github.com/heptiolabs/healthcheck"
 	"github.com/sapcc/atlas/pkg/netbox"
 	cmwriter "github.com/sapcc/atlas/pkg/writer"
+	"github.com/sirupsen/logrus"
 )
 
 var (
-	logger        klog.Logger
+	logger        *logrus.Logger
+	klogger       klog.Logger
 	query         string
 	region        string
 	namespace     string
@@ -32,7 +32,6 @@ var (
 )
 
 func init() {
-	logger = klog.NewLogfmtLogger(klog.NewSyncWriter(os.Stdout))
 	flag.StringVar(&query, "query", "", "query")
 	flag.StringVar(&region, "region", "", "region")
 	flag.StringVar(&namespace, "namespace", "", "namespace")
@@ -43,17 +42,30 @@ func init() {
 	flag.BoolVar(&local, "local", false, "run program out of cluster")
 	flag.Parse()
 
+	logger = logrus.New()
+	logger.SetFormatter(&logrus.TextFormatter{
+		DisableColors: true,
+		FullTimestamp: true,
+	})
+
+	if local {
+		logger.SetLevel(logrus.DebugLevel)
+	} else {
+		logger.SetLevel(logrus.InfoLevel)
+	}
+	klogger = klogrus.NewLogrusLogger(logger)
+
 	if namespace == "" {
-		log.Fatal("flag namespace must be specified")
+		logger.Fatal("flag namespace must be specified")
 	}
 	if netboxHost == "" {
-		log.Fatal("netbox host must be specified")
+		logger.Fatal("netbox host must be specified")
 	}
 	if netboxToken == "" {
-		log.Fatal("netbox token must be specified")
+		logger.Fatal("netbox token must be specified")
 	}
 	if region == "" {
-		log.Fatal("region must be specified")
+		logger.Fatal("region must be specified")
 	}
 }
 
@@ -74,20 +86,25 @@ func main() {
 	go http.ListenAndServe("0.0.0.0:8086", health)
 
 	// create configmap writer
-	_ = level.Info(logger).Log("msg", fmt.Sprintf("create writer to configmap: %s", configmapName))
+	logger.Infof("create writer to configmap: %s", configmapName)
 	if local {
-		logger = level.NewFilter(logger, level.AllowAll())
 		filerName := namespace + "_" + configmapName + ".out"
-		cm, err = cmwriter.NewFile(filerName, logger)
+		cm, err = cmwriter.NewFile(filerName, klogger)
 	} else {
-		logger = level.NewFilter(logger, level.AllowInfo())
-		cm, err = cmwriter.NewConfigMap(configmapName, namespace, logger)
+		logrus.SetLevel(logrus.InfoLevel)
+		cm, err = cmwriter.NewConfigMap(configmapName, namespace, klogger)
 	}
-	logErrorAndExit(err)
+	if err != nil {
+		logger.Error(err)
+		logger.Exit(1)
+	}
 
 	// create netbox client
 	nb, err := netbox.New(netboxHost, netboxToken)
-	logErrorAndExit(err)
+	if err != nil {
+		logger.Error(err)
+		logger.Exit(1)
+	}
 
 	// query netbox periodically and update configmap
 	tick := time.Tick(5 * time.Minute)
@@ -99,14 +116,14 @@ func main() {
 		// query netbox for filers
 		newFilers, err := GetFilers(nb, region, query)
 		if err != nil {
-			_ = level.Error(logger).Log("msg", err)
+			logger.Error(err)
 		}
 
 		if newFilers == nil {
-			_ = level.Warn(logger).Log("msg", "No filers found")
+			logger.Warn("No filers found")
 		} else {
 			if reflect.DeepEqual(newFilers, filers) {
-				_ = level.Info(logger).Log("msg", "Filers are not changed")
+				logger.Info("Filers are not changed")
 			} else {
 				writeFiler = true
 			}
@@ -116,7 +133,7 @@ func main() {
 		if writeFiler {
 			err = cm.Write(configmapKey, newFilers.YamlString())
 			if err != nil {
-				_ = level.Error(logger).Log("error", err)
+				logger.Error(err)
 			} else {
 				// don't set cmUpdated for liveness probe when the filers
 				// are written to configmap for the first time
@@ -125,23 +142,15 @@ func main() {
 				}
 
 				filers = newFilers
-				_ = level.Info(logger).Log("msg", filers.JsonString())
+				logger.Debug(filers.JsonString())
 			}
 		}
 
 		select {
 		case <-tick:
-			log.Println("tick")
 		case sig := <-interrupt:
-			log.Println(sig, "signal received")
-			os.Exit(1)
+			logger.Errorf("%v signal received", sig)
+			logger.Exit(1)
 		}
-	}
-}
-
-func logErrorAndExit(err error) {
-	if err != nil {
-		_ = level.Error(logger).Log("msg", err)
-		os.Exit(1)
 	}
 }
