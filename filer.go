@@ -10,6 +10,7 @@ import (
 type Filer struct {
 	Name string `json:"name" yaml:"name"`
 	Host string `json:"host" yaml:"host"`
+	AZ   string `json:"az" yaml:"az"`
 }
 
 type Filers map[string]Filer

@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
 	"github.com/hosting-de-labs/go-netbox/netbox/models"
 	"github.com/sapcc/atlas/pkg/netbox"
@@ -48,6 +50,7 @@ func GetFilers(nb *netbox.Netbox, region, query string) (filers Filers, err erro
 		filers[*d.Name] = Filer{
 			Name: *d.Name,
 			Host: *d.Name + ".cc." + region + ".cloud.sap",
+			AZ:   strings.ToLower(*d.Site.Name),
 		}
 	}
 	return filers, nil
