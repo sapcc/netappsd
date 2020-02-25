@@ -10,3 +10,5 @@ require (
 	github.com/sirupsen/logrus v1.2.0
 	gopkg.in/yaml.v2 v2.2.2
 )
+
+replace github.com/hosting-de-labs/go-netbox => github.com/sapcc/go-netbox v0.0.0-20200223214438-b66253786f7b

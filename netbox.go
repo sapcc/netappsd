@@ -10,7 +10,7 @@ import (
 var (
 	role         = "filer"
 	manufacturer = "netapp"
-	status       = "1"
+	status       = "active"
 	interfaces   = "False"
 
 	deviceParams = &dcim.DcimDevicesListParams{
