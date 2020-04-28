@@ -65,6 +65,7 @@ func getManilaFilers(nb *netbox.Netbox, region string) ([]models.Device, error) 
 	if err != nil {
 		return nil, err
 	}
+	devices = filterDeviceName(devices, query)
 
 	// some control plane filers are used as manila filers as well
 	query = "cp"
@@ -74,6 +75,7 @@ func getManilaFilers(nb *netbox.Netbox, region string) ([]models.Device, error) 
 	if err != nil {
 		return nil, err
 	}
+	moreDevices = filterDeviceName(moreDevices, query)
 	devices = append(devices, moreDevices...)
 	return devices, nil
 }
@@ -87,7 +89,7 @@ func getCinderFilers(nb *netbox.Netbox, region string) ([]models.Device, error) 
 	if err != nil {
 		return nil, err
 	}
-	return devices, nil
+	return filterDeviceName(devices, query), nil
 }
 
 func getBareMetalFilers(nb *netbox.Netbox, region string) ([]models.Device, error) {
@@ -99,7 +101,7 @@ func getBareMetalFilers(nb *netbox.Netbox, region string) ([]models.Device, erro
 	if err != nil {
 		return nil, err
 	}
-	return devices, nil
+	return filterDeviceName(devices, query), nil
 }
 
 func getControlPlaneFilers(nb *netbox.Netbox, region string) ([]models.Device, error) {
@@ -111,5 +113,15 @@ func getControlPlaneFilers(nb *netbox.Netbox, region string) ([]models.Device, e
 	if err != nil {
 		return nil, err
 	}
-	return devices, nil
+	return filterDeviceName(devices, query), nil
+}
+
+func filterDeviceName(devices []models.Device, s string) []models.Device {
+	results := []models.Device{}
+	for _, device := range devices {
+		if strings.Contains(*device.Name, query) {
+			results = append(results, device)
+		}
+	}
+	return results
 }
