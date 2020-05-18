@@ -142,7 +142,10 @@ func main() {
 				}
 
 				filers = newFilers
-				logger.Info(filers.JsonString())
+
+				for _, filer := range filers {
+					logger.Info(filer)
+				}
 			}
 		}
 
