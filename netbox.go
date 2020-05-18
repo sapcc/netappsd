@@ -113,7 +113,10 @@ func getControlPlaneFilers(nb *netbox.Netbox, region string) ([]models.Device, e
 	if err != nil {
 		return nil, err
 	}
-	return filterDeviceName(devices, query), nil
+	devices = filterDeviceName(devices, query)
+
+	// filter manila tag
+	return filterDeviceWithTag(devices, "manila"), nil
 }
 
 func filterDeviceName(devices []models.Device, s string) []models.Device {
@@ -123,5 +126,23 @@ func filterDeviceName(devices []models.Device, s string) []models.Device {
 			results = append(results, device)
 		}
 	}
+	return results
+}
+
+// remove devices with tag
+func filterDeviceWithTag(devices []models.Device, t string) []models.Device {
+	results := []models.Device{}
+
+device:
+	for _, device := range devices {
+		tags := device.Tags
+		for _, tag := range tags {
+			if tag == t {
+				continue device
+			}
+		}
+		results = append(results, device)
+	}
+
 	return results
 }
