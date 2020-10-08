@@ -1,7 +1,7 @@
-IMAGE_NAME:=hub.global.cloud.sap/monsoon/netappsd
+IMAGE_NAME:=keppel.eu-de-1.cloud.sap/ccloud/netappsd
 BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 HASH := $(shell git rev-parse HEAD | head -c 7)
-IMAGE_TAG:=v$(shell date -u +%Y%m%d%H%M%S)-$(BRANCH)-$(HASH)
+IMAGE_TAG:=$(BRANCH)-$(shell date -u +%Y%m%d%H%M%S)-$(HASH)
 
 GOFILES := $(wildcard *.go)
 

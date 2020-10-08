@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hosting-de-labs/go-netbox/netbox/client/dcim"
-	"github.com/hosting-de-labs/go-netbox/netbox/models"
+	"github.com/netbox-community/go-netbox/netbox/client/dcim"
+	"github.com/netbox-community/go-netbox/netbox/models"
 	"github.com/sapcc/atlas/pkg/netbox"
 )
 
@@ -25,7 +25,7 @@ var (
 
 func GetFilers(nb *netbox.Netbox, region, query string) (filers Filers, err error) {
 	var (
-		devices []models.Device
+		devices []models.DeviceWithConfigContext
 	)
 	switch query {
 	case "md":
@@ -56,7 +56,7 @@ func GetFilers(nb *netbox.Netbox, region, query string) (filers Filers, err erro
 	return filers, nil
 }
 
-func getManilaFilers(nb *netbox.Netbox, region string) ([]models.Device, error) {
+func getManilaFilers(nb *netbox.Netbox, region string) ([]models.DeviceWithConfigContext, error) {
 	query := "md"
 	params := *deviceParams
 	params.WithQ(&query)
@@ -80,7 +80,7 @@ func getManilaFilers(nb *netbox.Netbox, region string) ([]models.Device, error) 
 	return devices, nil
 }
 
-func getCinderFilers(nb *netbox.Netbox, region string) ([]models.Device, error) {
+func getCinderFilers(nb *netbox.Netbox, region string) ([]models.DeviceWithConfigContext, error) {
 	query := "bb"
 	params := *deviceParams
 	params.WithQ(&query)
@@ -92,7 +92,7 @@ func getCinderFilers(nb *netbox.Netbox, region string) ([]models.Device, error) 
 	return filterDeviceName(devices, query), nil
 }
 
-func getBareMetalFilers(nb *netbox.Netbox, region string) ([]models.Device, error) {
+func getBareMetalFilers(nb *netbox.Netbox, region string) ([]models.DeviceWithConfigContext, error) {
 	query := "bm"
 	params := *deviceParams
 	params.WithQ(&query)
@@ -104,7 +104,7 @@ func getBareMetalFilers(nb *netbox.Netbox, region string) ([]models.Device, erro
 	return filterDeviceName(devices, query), nil
 }
 
-func getControlPlaneFilers(nb *netbox.Netbox, region string) ([]models.Device, error) {
+func getControlPlaneFilers(nb *netbox.Netbox, region string) ([]models.DeviceWithConfigContext, error) {
 	query := "cp"
 	params := *deviceParams
 	params.WithQ(&query)
@@ -119,8 +119,8 @@ func getControlPlaneFilers(nb *netbox.Netbox, region string) ([]models.Device, e
 	return filterDeviceWithTag(devices, "manila"), nil
 }
 
-func filterDeviceName(devices []models.Device, s string) []models.Device {
-	results := []models.Device{}
+func filterDeviceName(devices []models.DeviceWithConfigContext, s string) []models.DeviceWithConfigContext {
+	results := []models.DeviceWithConfigContext{}
 	for _, device := range devices {
 		if strings.Contains(*device.Name, query) {
 			results = append(results, device)
@@ -130,14 +130,14 @@ func filterDeviceName(devices []models.Device, s string) []models.Device {
 }
 
 // remove devices with tag
-func filterDeviceWithTag(devices []models.Device, t string) []models.Device {
-	results := []models.Device{}
+func filterDeviceWithTag(devices []models.DeviceWithConfigContext, t string) []models.DeviceWithConfigContext {
+	results := []models.DeviceWithConfigContext{}
 
 device:
 	for _, device := range devices {
 		tags := device.Tags
 		for _, tag := range tags {
-			if tag == t {
+			if *tag.Name == t {
 				continue device
 			}
 		}
