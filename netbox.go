@@ -32,6 +32,14 @@ func GetFilers(nb *netbox.Netbox, region, query string) (filers Filers, err erro
 		devices, err = getManilaFilers(nb, region)
 	case "bb":
 		devices, err = getCinderFilers(nb, region)
+		if err != nil {
+			break
+		}
+		st, err := getCinderFilersWithTags(nb, region, "st0")
+		if err != nil {
+			break
+		}
+		devices = append(devices, st...)
 	case "bm":
 		devices, err = getBareMetalFilers(nb, region)
 	case "cp":
@@ -145,4 +153,19 @@ device:
 	}
 
 	return results
+}
+
+// getCinderFilersWithTags() is a placeholder function that will be implemented
+// as the name indicates. At the moment, it's a hack by searching the st0 in the
+// filer name
+func getCinderFilersWithTags(nb *netbox.Netbox, region, tag string) ([]models.DeviceWithConfigContext, error) {
+	query := tag
+	params := *deviceParams
+	params.WithQ(&query)
+	params.WithRegion(&region)
+	devices, err := nb.DevicesByParams(params)
+	if err != nil {
+		return nil, err
+	}
+	return devices, nil
 }
