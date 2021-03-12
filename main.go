@@ -2,72 +2,32 @@ package main
 
 import (
 	"flag"
-	"net/http"
 	"os"
 	"os/signal"
 	"reflect"
+	"strings"
 	"syscall"
 	"time"
 
-	klog "github.com/go-kit/kit/log"
-	klogrus "github.com/go-kit/kit/log/logrus"
-	"github.com/heptiolabs/healthcheck"
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/sapcc/atlas/pkg/netbox"
 	cmwriter "github.com/sapcc/atlas/pkg/writer"
-	"github.com/sirupsen/logrus"
 )
 
 var (
-	logger        *logrus.Logger
-	klogger       klog.Logger
 	query         string
 	region        string
 	namespace     string
 	configmapName string
-	configmapKey  string
+	filename      string
 	netboxHost    string
 	netboxToken   string
+	logLevel      string
 	local         bool
 	cmUpdated     bool
+	logger        log.Logger
 )
-
-func init() {
-	flag.StringVar(&query, "query", "", "query")
-	flag.StringVar(&region, "region", "", "region")
-	flag.StringVar(&namespace, "namespace", "", "namespace")
-	flag.StringVar(&configmapName, "configmap", "netapp-perf-etc", "configmap name")
-	flag.StringVar(&configmapKey, "key", "netapp-filers.yaml", "configmap key")
-	flag.StringVar(&netboxHost, "netbox-host", "", "netbox host")
-	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
-	flag.BoolVar(&local, "local", false, "run program out of cluster")
-	flag.Parse()
-
-	logger = logrus.New()
-	logger.SetFormatter(&logrus.TextFormatter{
-		DisableColors: true,
-		FullTimestamp: true,
-	})
-
-	if local {
-		logger.SetLevel(logrus.DebugLevel)
-	} else {
-		logger.SetLevel(logrus.InfoLevel)
-	}
-	klogger = klogrus.NewLogrusLogger(logger)
-
-	if namespace == "" {
-		logger.Fatal("flag namespace must be specified")
-	}
-	if netboxHost == "" {
-		logger.Fatal("netbox host must be specified")
-	}
-	if netboxToken == "" {
-		logger.Fatal("netbox token must be specified")
-	}
-	if region == "" {
-		logger.Fatal("region must be specified")
-	}
-}
 
 func main() {
 	var (
@@ -76,84 +36,105 @@ func main() {
 		filers Filers
 	)
 
-	health := healthcheck.NewHandler()
-	health.AddLivenessCheck("configmap-updated", ValueCheck("configmap updated", func() bool {
-		// return false on updating configmap
-		return !cmUpdated
-	}))
-
-	// serve health check at :8086/live and :8086/ready
-	go http.ListenAndServe("0.0.0.0:8086", health)
-
 	// create configmap writer
-	logger.Infof("create writer to configmap: %s", configmapName)
-	if local {
-		filerName := namespace + "_" + configmapName + ".out"
-		cm, err = cmwriter.NewFile(filerName, klogger)
+	if configmapName == "" {
+		cm, err = cmwriter.NewFile(filename, logger)
 	} else {
-		logrus.SetLevel(logrus.InfoLevel)
-		cm, err = cmwriter.NewConfigMap(configmapName, namespace, klogger)
+		cm, err = cmwriter.NewConfigMap(configmapName, namespace, logger)
 	}
 	if err != nil {
-		logger.Error(err)
-		logger.Exit(1)
+		level.Error(logger).Log("msg", err)
+		os.Exit(1)
 	}
 
 	// create netbox client
 	nb, err := netbox.New(netboxHost, netboxToken)
 	if err != nil {
-		logger.Error(err)
-		logger.Exit(1)
+		level.Error(logger).Log(err)
+		os.Exit(1)
 	}
 
-	// query netbox periodically and update configmap
-	tick := time.Tick(5 * time.Minute)
+	// query netbox every 15 min and update configmap
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+	ticker := time.NewTicker(15 * time.Minute)
+	defer ticker.Stop()
+
 	for {
-		writeFiler := false
-
-		// query netbox for filers
-		newFilers, err := GetFilers(nb, region, query)
-		if err != nil {
-			logger.Error(err)
-		}
-
-		if newFilers == nil {
-			logger.Warn("No filers found")
-		} else {
-			if reflect.DeepEqual(newFilers, filers) {
-				logger.Debug("Filers are not changed")
-			} else {
-				writeFiler = true
-			}
-		}
-
-		// write filers to configmap
-		if writeFiler {
-			err = cm.Write(configmapKey, newFilers.YamlString())
+		go func() {
+			// query netbox for filers
+			newFilers, err := GetFilers(nb, region, query)
 			if err != nil {
-				logger.Error(err)
-			} else {
-				// don't set cmUpdated for liveness probe when the filers
-				// are written to configmap for the first time
-				if filers != nil {
-					cmUpdated = true
-				}
-
-				filers = newFilers
-
-				for _, filer := range filers {
-					logger.Info(filer)
-				}
+				level.Error(logger).Log("msg", err)
 			}
-		}
+			if newFilers == nil {
+				level.Warn(logger).Log("msg", "no filers found")
+				return
+			}
+			if reflect.DeepEqual(newFilers, filers) {
+				level.Debug(logger).Log("msg", "no new filers")
+				return
+			}
+			// write filers to configmap
+			err = cm.Write(filename, newFilers.YamlString())
+			if err != nil {
+				level.Error(logger).Log("msg", err)
+				return
+			}
+			filers = newFilers
+			for _, filer := range filers {
+				level.Info(logger).Log("name", filer.Name, "host", filer.Host, "az", filer.AZ)
+			}
+		}()
 
 		select {
-		case <-tick:
+		case <-ticker.C:
 		case sig := <-interrupt:
-			logger.Errorf("%v signal received", sig)
-			logger.Exit(1)
+			logger.Log("%v signal received", sig)
+			os.Exit(0)
+		}
+	}
+}
+
+func init() {
+	flag.StringVar(&query, "query", "", "query")
+	flag.StringVar(&region, "region", "", "region")
+	flag.StringVar(&namespace, "namespace", "", "namespace")
+	flag.StringVar(&configmapName, "configmap", "", "configmap name")
+	flag.StringVar(&filename, "filename", "netapp-filers.yaml", "file name (used as key in configmap)")
+	flag.StringVar(&netboxHost, "netbox-host", "netbox.global.cloud.sap", "netbox host")
+	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
+	flag.StringVar(&logLevel, "log-level", "debug", "log level")
+	flag.Parse()
+
+	logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
+	logger = log.With(logger, "ts", log.DefaultTimestampUTC)
+
+	switch strings.ToLower(logLevel) {
+	case "info":
+		logger = level.NewFilter(logger, level.AllowInfo())
+	case "debug":
+		logger = level.NewFilter(logger, level.AllowDebug())
+	case "warn":
+		logger = level.NewFilter(logger, level.AllowWarn())
+	case "error":
+		logger = level.NewFilter(logger, level.AllowError())
+	}
+
+	if netboxToken == "" {
+		level.Error(logger).Log("msg", "netbox token must be specified")
+		os.Exit(1)
+	}
+	if region == "" {
+		level.Error(logger).Log("msg", "region must be specified")
+		os.Exit(1)
+	}
+	if configmapName == "" {
+		level.Warn(logger).Log("msg", "configmap not specified, writting to local file")
+	} else {
+		if namespace == "" {
+			level.Error(logger).Log("msg", "namespace must be specified when configmapName is specified")
+			os.Exit(1)
 		}
 	}
 }
