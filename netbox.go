@@ -10,15 +10,15 @@ import (
 )
 
 var (
-	role         = "filer"
+	roleFiler    = "filer"
 	manufacturer = "netapp"
-	status       = "active"
+	statusActive = "active"
 	interfaces   = "False"
 
 	deviceParams = &dcim.DcimDevicesListParams{
-		Role:         &role,
+		Role:         &roleFiler,
 		Manufacturer: &manufacturer,
-		Status:       &status,
+		Status:       &statusActive,
 		Interfaces:   &interfaces,
 	}
 )
@@ -35,7 +35,7 @@ func GetFilers(nb *netbox.Netbox, region, query string) (filers Filers, err erro
 		if err != nil {
 			break
 		}
-		st, err := getCinderFilersWithTags(nb, region, "st0")
+		st, err := getActiveFilersByTag(nb, region, "cinder")
 		if err != nil {
 			break
 		}
@@ -155,17 +155,11 @@ device:
 	return results
 }
 
-// getCinderFilersWithTags() is a placeholder function that will be implemented
-// as the name indicates. At the moment, it's a hack by searching the st0 in the
-// filer name
-func getCinderFilersWithTags(nb *netbox.Netbox, region, tag string) ([]models.DeviceWithConfigContext, error) {
-	query := tag
-	params := *deviceParams
-	params.WithQ(&query)
-	params.WithRegion(&region)
-	devices, err := nb.DevicesByParams(params)
-	if err != nil {
-		return nil, err
-	}
-	return devices, nil
+func getActiveFilersByTag(nb *netbox.Netbox, region, tag string) ([]models.DeviceWithConfigContext, error) {
+	return nb.DevicesByParams(dcim.DcimDevicesListParams{
+		Role:   &roleFiler,
+		Status: &statusActive,
+		Tag:    &tag,
+		Region: &region,
+	})
 }
