@@ -6,160 +6,75 @@ import (
 
 	"github.com/netbox-community/go-netbox/netbox/client/dcim"
 	"github.com/netbox-community/go-netbox/netbox/models"
-	"github.com/sapcc/atlas/pkg/netbox"
 )
 
-var (
-	roleFiler    = "filer"
-	manufacturer = "netapp"
-	statusActive = "active"
-	interfaces   = "False"
+var ()
 
-	deviceParams = &dcim.DcimDevicesListParams{
-		Role:         &roleFiler,
-		Manufacturer: &manufacturer,
-		Status:       &statusActive,
-		Interfaces:   &interfaces,
-	}
-)
-
-func GetFilers(nb *netbox.Netbox, region, query string) (filers Filers, err error) {
-	var (
-		devices []models.DeviceWithConfigContext
-	)
+func GetFilers(nb *Netbox, region, query string) (filers Filers, err error) {
 	switch query {
-	case "md":
-		devices, err = getManilaFilers(nb, region)
-	case "bb":
-		devices, err = getCinderFilers(nb, region)
-		if err != nil {
-			break
-		}
-		st, err := getActiveFilersByTag(nb, region, "cinder")
-		if err != nil {
-			break
-		}
-		devices = append(devices, st...)
-	case "bm":
-		devices, err = getBareMetalFilers(nb, region)
-	case "cp":
-		devices, err = getControlPlaneFilers(nb, region)
+	case "md", "manila":
+		filers, err = getFilersByTag(nb, region, "manila")
+	case "bb", "cinder":
+		filers, err = getFilersByTag(nb, region, "cinder")
+	case "bm", "baremetal":
+		filers, err = getFilersByTag(nb, region, "baremetal")
+	case "cp", "control-plane", "control_plane":
+		filers, err = getFilersByTag(nb, region, "control_plane")
 	default:
-		return nil, fmt.Errorf("%s is not valide filer type", query)
+		err = fmt.Errorf("%s is not valide filer type", query)
 	}
 	if err != nil {
 		return nil, err
-	}
-
-	// hostnames/ips are not maintained in netbox for the filers, we have to
-	// rely on the name of filers to determin the hosts
-	filers = Filers{}
-	for _, d := range devices {
-		filers[*d.Name] = Filer{
-			Name: *d.Name,
-			Host: *d.Name + ".cc." + region + ".cloud.sap",
-			AZ:   strings.ToLower(*d.Site.Name),
-		}
 	}
 	return filers, nil
 }
 
-func getManilaFilers(nb *netbox.Netbox, region string) ([]models.DeviceWithConfigContext, error) {
-	query := "md"
-	params := *deviceParams
-	params.WithQ(&query)
-	params.WithRegion(&region)
-	devices, err := nb.DevicesByParams(params)
+func getFilersByTag(nb *Netbox, region, tag string) (Filers, error) {
+	var (
+		roleFiler    = "filer"
+		manufacturer = "netapp"
+		statusActive = "active"
+		interfaces   = "False"
+	)
+	devices, err := nb.FetchDevices(dcim.DcimDevicesListParams{
+		Role:         &roleFiler,
+		Status:       &statusActive,
+		Manufacturer: &manufacturer,
+		Interfaces:   &interfaces,
+		Tag:          &tag,
+		Region:       &region,
+	})
 	if err != nil {
 		return nil, err
 	}
-	devices = filterDeviceName(devices, query)
-
-	// some control plane filers are used as manila filers as well
-	query = "cp"
-	tag := "manila"
-	params.WithTag(&tag)
-	moreDevices, err := nb.DevicesByParams(params)
-	if err != nil {
-		return nil, err
-	}
-	moreDevices = filterDeviceName(moreDevices, query)
-	devices = append(devices, moreDevices...)
-	return devices, nil
+	return makeFilers(nb, devices), nil
 }
 
-func getCinderFilers(nb *netbox.Netbox, region string) ([]models.DeviceWithConfigContext, error) {
-	query := "bb"
-	params := *deviceParams
-	params.WithQ(&query)
-	params.WithRegion(&region)
-	devices, err := nb.DevicesByParams(params)
-	if err != nil {
-		return nil, err
-	}
-	return filterDeviceName(devices, query), nil
-}
-
-func getBareMetalFilers(nb *netbox.Netbox, region string) ([]models.DeviceWithConfigContext, error) {
-	query := "bm"
-	params := *deviceParams
-	params.WithQ(&query)
-	params.WithRegion(&region)
-	devices, err := nb.DevicesByParams(params)
-	if err != nil {
-		return nil, err
-	}
-	return filterDeviceName(devices, query), nil
-}
-
-func getControlPlaneFilers(nb *netbox.Netbox, region string) ([]models.DeviceWithConfigContext, error) {
-	query := "cp"
-	params := *deviceParams
-	params.WithQ(&query)
-	params.WithRegion(&region)
-	devices, err := nb.DevicesByParams(params)
-	if err != nil {
-		return nil, err
-	}
-	devices = filterDeviceName(devices, query)
-
-	// filter manila tag
-	return filterDeviceWithTag(devices, "manila"), nil
-}
-
-func filterDeviceName(devices []models.DeviceWithConfigContext, s string) []models.DeviceWithConfigContext {
-	results := []models.DeviceWithConfigContext{}
-	for _, device := range devices {
-		if strings.Contains(*device.Name, query) {
-			results = append(results, device)
-		}
-	}
-	return results
-}
-
-// remove devices with tag
-func filterDeviceWithTag(devices []models.DeviceWithConfigContext, t string) []models.DeviceWithConfigContext {
-	results := []models.DeviceWithConfigContext{}
-
-device:
-	for _, device := range devices {
-		tags := device.Tags
-		for _, tag := range tags {
-			if *tag.Name == t {
-				continue device
+func makeFilers(nb *Netbox, devices []*models.DeviceWithConfigContext) Filers {
+	// IP address is not maintained in netbox for the filer cluster, therefore
+	// filer name is used to determin the host name.
+	//
+	// TODO: Use the ip address of the first node as the host ip. To do that,
+	// one should read the IP of the installed device on the first node
+	// bay.
+	filers := make(Filers)
+	for _, d := range devices {
+		// Ignore filer cluster with no nodes
+		if deviceBays, err := nb.GetDeviceBaysByDeviceID(d.ID); err == nil {
+			nd := 0
+			for _, dd := range deviceBays {
+				if dd.InstalledDevice != nil {
+					nd = nd + 1
+				}
+			}
+			if nd > 0 {
+				filers[*d.Name] = Filer{
+					Name: *d.Name,
+					Host: *d.Name + ".cc." + region + ".cloud.sap",
+					AZ:   strings.ToLower(*d.Site.Name),
+				}
 			}
 		}
-		results = append(results, device)
 	}
-
-	return results
-}
-
-func getActiveFilersByTag(nb *netbox.Netbox, region, tag string) ([]models.DeviceWithConfigContext, error) {
-	return nb.DevicesByParams(dcim.DcimDevicesListParams{
-		Role:   &roleFiler,
-		Status: &statusActive,
-		Tag:    &tag,
-		Region: &region,
-	})
+	return filers
 }

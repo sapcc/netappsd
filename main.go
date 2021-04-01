@@ -4,14 +4,12 @@ import (
 	"flag"
 	"os"
 	"os/signal"
-	"reflect"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	"github.com/sapcc/atlas/pkg/netbox"
 	cmwriter "github.com/sapcc/atlas/pkg/writer"
 )
 
@@ -24,19 +22,15 @@ var (
 	netboxHost    string
 	netboxToken   string
 	logLevel      string
-	local         bool
-	cmUpdated     bool
 	logger        log.Logger
 )
 
 func main() {
 	var (
-		cm     cmwriter.Writer
-		err    error
-		filers Filers
+		cm  cmwriter.Writer
+		err error
 	)
 
-	// create configmap writer
 	if configmapName == "" {
 		cm, err = cmwriter.NewFile(filename, logger)
 	} else {
@@ -46,15 +40,14 @@ func main() {
 		level.Error(logger).Log("msg", err)
 		os.Exit(1)
 	}
-
-	// create netbox client
-	nb, err := netbox.New(netboxHost, netboxToken)
+	nb, err := NewNetboxClient(netboxHost, netboxToken)
 	if err != nil {
 		level.Error(logger).Log(err)
 		os.Exit(1)
 	}
 
 	// query netbox every 15 min and update configmap
+	filers := make(Filers)
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 	ticker := time.NewTicker(15 * time.Minute)
@@ -63,28 +56,31 @@ func main() {
 	for {
 		go func() {
 			// query netbox for filers
+			newFilerFound := false
 			newFilers, err := GetFilers(nb, region, query)
 			if err != nil {
 				level.Error(logger).Log("msg", err)
 			}
-			if newFilers == nil {
+			if len(newFilers) == 0 {
 				level.Warn(logger).Log("msg", "no filers found")
 				return
 			}
-			if reflect.DeepEqual(newFilers, filers) {
-				level.Debug(logger).Log("msg", "no new filers")
-				return
+			for fname, fnew := range newFilers {
+				if f, ok := filers[fname]; !ok && f != fnew {
+					newFilerFound = true
+					level.Info(logger).Log("name", fnew.Name, "host", fnew.Host, "az", fnew.AZ)
+				}
 			}
 			// write filers to configmap
+			if !newFilerFound {
+				return
+			}
 			err = cm.Write(filename, newFilers.YamlString())
 			if err != nil {
 				level.Error(logger).Log("msg", err)
 				return
 			}
 			filers = newFilers
-			for _, filer := range filers {
-				level.Info(logger).Log("name", filer.Name, "host", filer.Host, "az", filer.AZ)
-			}
 		}()
 
 		select {
