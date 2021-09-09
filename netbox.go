@@ -18,8 +18,8 @@ func GetFilers(nb *Netbox, region, query string) (filers Filers, err error) {
 		filers, err = getFilersByTag(nb, region, "cinder")
 	case "bm", "baremetal":
 		filers, err = getFilersByTag(nb, region, "baremetal")
-	case "cp", "control-plane", "control_plane":
-		filers, err = getFilersByTag(nb, region, "control_plane")
+	case "apod", "cp", "control-plane", "control_plane":
+		filers, err = getFilersByTag(nb, region, "apod")
 	default:
 		err = fmt.Errorf("%s is not valide filer type", query)
 	}
