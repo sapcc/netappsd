@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"strings"
@@ -18,7 +20,7 @@ var (
 	region        string
 	namespace     string
 	configmapName string
-	filename      string
+	filepath      string
 	netboxHost    string
 	netboxToken   string
 	logLevel      string
@@ -31,14 +33,12 @@ func main() {
 		err error
 	)
 
-	if configmapName == "" {
-		cm, err = cmwriter.NewFile(filename, logger)
-	} else {
+	if configmapName != "" {
 		cm, err = cmwriter.NewConfigMap(configmapName, namespace, logger)
-	}
-	if err != nil {
-		level.Error(logger).Log("msg", err)
-		os.Exit(1)
+		if err != nil {
+			level.Error(logger).Log("msg", err)
+			os.Exit(1)
+		}
 	}
 	nb, err := NewNetboxClient(netboxHost, netboxToken)
 	if err != nil {
@@ -68,14 +68,19 @@ func main() {
 			for fname, fnew := range newFilers {
 				if f, ok := filers[fname]; !ok && f != fnew {
 					newFilerFound = true
-					level.Info(logger).Log("name", fnew.Name, "host", fnew.Host, "az", fnew.AZ)
+					level.Debug(logger).Log("name", fnew.Name, "host", fnew.Host, "az", fnew.AZ)
 				}
 			}
 			// write filers to configmap
 			if !newFilerFound {
 				return
 			}
-			err = cm.Write(filename, newFilers.YamlString())
+			if cm == nil {
+				err = ioutil.WriteFile(filepath, []byte(newFilers.YamlString()), 0)
+				level.Info(logger).Log("msg", fmt.Sprintf("%d filers are written to %s", len(newFilers), filepath))
+			} else {
+				err = cm.Write(filepath, newFilers.YamlString())
+			}
 			if err != nil {
 				level.Error(logger).Log("msg", err)
 				return
@@ -97,7 +102,7 @@ func init() {
 	flag.StringVar(&region, "region", "", "region")
 	flag.StringVar(&namespace, "namespace", "", "namespace")
 	flag.StringVar(&configmapName, "configmap", "", "configmap name")
-	flag.StringVar(&filename, "filename", "netapp-filers.yaml", "file name (used as key in configmap)")
+	flag.StringVar(&filepath, "output-file-path", "filers.yaml", "output file path (also used as key in configmap)")
 	flag.StringVar(&netboxHost, "netbox-host", "netbox.global.cloud.sap", "netbox host")
 	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
 	flag.StringVar(&logLevel, "log-level", "debug", "log level")
@@ -126,7 +131,7 @@ func init() {
 		os.Exit(1)
 	}
 	if configmapName == "" {
-		level.Warn(logger).Log("msg", "configmap not specified, writting to local file")
+		level.Warn(logger).Log("msg", fmt.Sprintf("configmap not specified, writting to local file: %s", filepath))
 	} else {
 		if namespace == "" {
 			level.Error(logger).Log("msg", "namespace must be specified when configmapName is specified")

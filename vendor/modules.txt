@@ -81,7 +81,6 @@ github.com/netbox-community/go-netbox/netbox/models
 # github.com/opencontainers/go-digest v1.0.0-rc1
 github.com/opencontainers/go-digest
 # github.com/sapcc/atlas v0.0.0-20201008114448-b4b0ed639620
-github.com/sapcc/atlas/pkg/netbox
 github.com/sapcc/atlas/pkg/util
 github.com/sapcc/atlas/pkg/writer
 # github.com/spf13/pflag v1.0.5
