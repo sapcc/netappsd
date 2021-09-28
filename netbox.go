@@ -61,17 +61,29 @@ func makeFilers(nb *Netbox, devices []*models.DeviceWithConfigContext) Filers {
 	for _, d := range devices {
 		// Ignore filer cluster with no nodes
 		if deviceBays, err := nb.GetDeviceBaysByDeviceID(d.ID); err == nil {
-			nd := 0
-			for _, dd := range deviceBays {
-				if dd.InstalledDevice != nil {
-					nd = nd + 1
+			hasChildDevice := false
+			ip := ""
+			for _, node := range deviceBays {
+				if node.InstalledDevice != nil {
+					hasChildDevice = true
+					if ip == "" {
+						d, err := nb.GetDeviceByID(node.InstalledDevice.ID)
+						if err != nil {
+							continue
+						}
+						if d.PrimaryIp4 != nil {
+							s := strings.Split(*d.PrimaryIp4.Address, "/")
+							ip = s[0]
+						}
+					}
 				}
 			}
-			if nd > 0 {
+			if hasChildDevice {
 				filers[*d.Name] = Filer{
 					Name: *d.Name,
 					Host: *d.Name + ".cc." + region + ".cloud.sap",
 					AZ:   strings.ToLower(*d.Site.Name),
+					IP:   ip,
 				}
 			}
 		}

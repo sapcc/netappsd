@@ -11,6 +11,7 @@ type Filer struct {
 	Name string `json:"name" yaml:"name"`
 	Host string `json:"host" yaml:"host"`
 	AZ   string `json:"availability_zone" yaml:"availability_zone"`
+	IP   string `json:"ip,omitempty" yaml:"ip,omitempty"`
 }
 
 type Filers map[string]Filer

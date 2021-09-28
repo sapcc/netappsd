@@ -68,7 +68,7 @@ func main() {
 			for fname, fnew := range newFilers {
 				if f, ok := filers[fname]; !ok && f != fnew {
 					newFilerFound = true
-					level.Debug(logger).Log("name", fnew.Name, "host", fnew.Host, "az", fnew.AZ)
+					level.Debug(logger).Log("name", fnew.Name, "host", fnew.Host, "az", fnew.AZ, "ip", fnew.IP)
 				}
 			}
 			// write filers to configmap
