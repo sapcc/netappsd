@@ -22,7 +22,9 @@ func NewNetboxClient(host, token string) (*Netbox, error) {
 		return nil, err
 	}
 	transport := httptransport.NewWithClient(host, client.DefaultBasePath, []string{"https"}, tlsClient)
-	transport.DefaultAuthentication = httptransport.APIKeyAuth("Authorization", "header", fmt.Sprintf("Token %v", token))
+  if token != "" {
+	  transport.DefaultAuthentication = httptransport.APIKeyAuth("Authorization", "header", fmt.Sprintf("Token %v", token))
+  }
 	c := client.New(transport, nil)
 	return &Netbox{c}, nil
 }

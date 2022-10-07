@@ -18,7 +18,7 @@ bin/netappsd-linux: $(GOFILES)
 .Phony: clean docker
 
 docker: Dockerfile bin/netappsd-linux
-	docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+	docker build --platform linux/amd64 -t ${IMAGE_NAME}:${IMAGE_TAG} .
 	docker push ${IMAGE_NAME}:${IMAGE_TAG}
 
 clean:

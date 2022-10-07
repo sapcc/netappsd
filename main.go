@@ -122,10 +122,6 @@ func init() {
 		logger = level.NewFilter(logger, level.AllowError())
 	}
 
-	if netboxToken == "" {
-		level.Error(logger).Log("msg", "netbox token must be specified")
-		os.Exit(1)
-	}
 	if region == "" {
 		level.Error(logger).Log("msg", "region must be specified")
 		os.Exit(1)
