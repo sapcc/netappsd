@@ -18,15 +18,17 @@ type Filer struct {
 type Filers map[string]Filer
 
 type FilerConfig struct {
-	filers     Filers
-	configPath string
-	nc         *Netbox
+	filers       Filers
+	configPath   string
+	templatePath string
+	nc           *Netbox
 }
 
-func NewFilerConfig(p string, nc *Netbox) (*FilerConfig, error) {
+func NewFilerConfig(p, tp string, nc *Netbox) (*FilerConfig, error) {
 	c := &FilerConfig{
-		configPath: p,
-		nc:         nc,
+		configPath:   p,
+		templatePath: tp,
+		nc:           nc,
 	}
 	err := c.LoadConfig()
 	return c, err

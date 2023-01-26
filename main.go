@@ -35,7 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	c, err := sd.NewFilerConfig(filepath, nb)
+	c, err := sd.NewFilerConfig(filepath, templatePath, nb)
 	if err != nil {
 		warn("msg", fmt.Sprintf("new config: %s", err))
 	}
