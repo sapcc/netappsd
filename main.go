@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,87 +12,65 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	cmwriter "github.com/sapcc/atlas/pkg/writer"
+	sd "github.com/sapcc/netappsd/pkg/netappsd"
 )
 
 var (
-	query         string
-	region        string
-	namespace     string
-	configmapName string
-	filepath      string
-	netboxHost    string
-	netboxToken   string
-	logLevel      string
-	logger        log.Logger
+	query          string
+	region         string
+	namespace      string
+	filepath       string
+	templatePath   string
+	netboxHost     string
+	netboxToken    string
+	logLevel       string
+	logger         log.Logger
+	updateInterval int64
 )
 
 func main() {
-	var (
-		cm  cmwriter.Writer
-		err error
-	)
-
-	if configmapName != "" {
-		cm, err = cmwriter.NewConfigMap(configmapName, namespace, logger)
-		if err != nil {
-			level.Error(logger).Log("msg", err)
-			os.Exit(1)
-		}
-	}
-	nb, err := NewNetboxClient(netboxHost, netboxToken)
+	nb, err := sd.NewNetboxClient(netboxHost, netboxToken)
 	if err != nil {
-		level.Error(logger).Log(err)
+		erro(err)
 		os.Exit(1)
 	}
 
+	c, err := sd.NewFilerConfig(filepath, nb)
+	if err != nil {
+		warn("msg", fmt.Sprintf("new config: %s", err))
+	}
+
 	// query netbox every 15 min and update configmap
-	filers := make(Filers)
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
-	ticker := time.NewTicker(15 * time.Minute)
+	ticker := time.NewTicker(time.Duration(updateInterval) * time.Second)
 	defer ticker.Stop()
 
+	// stop ticker before exit
+	quit := func(code int) int {
+		defer ticker.Stop()
+		return code
+	}
+
+	// create context
+	ctx := cancelCtxOnSigterm(context.Background())
+
 	for {
-		go func() {
-			// query netbox for filers
-			newFilerFound := false
-			newFilers, err := GetFilers(nb, region, query)
-			if err != nil {
-				level.Error(logger).Log("msg", err)
-			}
-			if len(newFilers) == 0 {
-				level.Warn(logger).Log("msg", "no filers found")
-				return
-			}
-			for fname, fnew := range newFilers {
-				if f, ok := filers[fname]; !ok && f != fnew {
-					newFilerFound = true
-					level.Debug(logger).Log("name", fnew.Name, "host", fnew.Host, "az", fnew.AZ, "ip", fnew.IP)
-				}
-			}
-			// write filers to configmap
-			if !newFilerFound {
-				return
-			}
-			if cm == nil {
-				err = ioutil.WriteFile(filepath, []byte(newFilers.YamlString()), 0)
-				level.Info(logger).Log("msg", fmt.Sprintf("%d filers are written to %s", len(newFilers), filepath))
-			} else {
-				err = cm.Write(filepath, newFilers.YamlString())
-			}
-			if err != nil {
-				level.Error(logger).Log("msg", err)
-				return
-			}
-			filers = newFilers
-		}()
+		found, err := updateConfig(c)
+		if err != nil {
+			erro(err)
+		}
+		if found {
+			// exit with 1 if new filer found
+			// pod will be restarted when container fails with exit code 1 ???
+			os.Exit(quit(1))
+		}
+
+		debug("msg", fmt.Sprintf("No new filers found, continue in %d seconds..", updateInterval))
 
 		select {
 		case <-ticker.C:
-		case sig := <-interrupt:
-			logger.Log("%v signal received", sig)
-			os.Exit(0)
+			continue
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -100,12 +78,12 @@ func main() {
 func init() {
 	flag.StringVar(&query, "query", "", "query")
 	flag.StringVar(&region, "region", "", "region")
-	flag.StringVar(&namespace, "namespace", "", "namespace")
-	flag.StringVar(&configmapName, "configmap", "", "configmap name")
-	flag.StringVar(&filepath, "output-file-path", "filers.yaml", "output file path (also used as key in configmap)")
 	flag.StringVar(&netboxHost, "netbox-host", "netbox.global.cloud.sap", "netbox host")
 	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
+	flag.StringVar(&filepath, "output", "./filers.yaml", "output file path")
+	flag.StringVar(&templatePath, "template", "", "template path")
 	flag.StringVar(&logLevel, "log-level", "debug", "log level")
+	flag.Int64Var(&updateInterval, "interval", 900, "update interval in seconds")
 	flag.Parse()
 
 	logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
@@ -126,12 +104,57 @@ func init() {
 		level.Error(logger).Log("msg", "region must be specified")
 		os.Exit(1)
 	}
-	if configmapName == "" {
-		level.Warn(logger).Log("msg", fmt.Sprintf("configmap not specified, writting to local file: %s", filepath))
-	} else {
-		if namespace == "" {
-			level.Error(logger).Log("msg", "namespace must be specified when configmapName is specified")
-			os.Exit(1)
+
+	level.Info(logger).Log("msg", fmt.Sprintf("output to local file %s", filepath))
+}
+
+// updateConfig fetches data and compare with old data
+func updateConfig(c *sd.FilerConfig) (foundNew bool, err error) {
+	filers, newFilers, err := c.Fetch(region, query)
+	if err != nil {
+		return
+	}
+
+	// compoare old and new filers
+	for name, newf := range newFilers {
+		if oldf, ok := filers[name]; !ok && oldf != newf {
+			level.Debug(logger).Log("name", newf.Name, "host", newf.Host, "az", newf.AZ, "ip", newf.IP)
+			foundNew = true
 		}
 	}
+
+	if foundNew {
+		if err = c.Write(); err != nil {
+			return
+		}
+	}
+	return
+}
+
+/* helpers */
+
+func cancelCtxOnSigterm(ctx context.Context) context.Context {
+	exitCh := make(chan os.Signal, 1)
+	signal.Notify(exitCh, os.Interrupt, syscall.SIGTERM)
+
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		<-exitCh
+		cancel()
+	}()
+	return ctx
+}
+
+func info(keyvals ...interface{}) {
+	level.Info(logger).Log(keyvals...)
+}
+func erro(keyvals ...interface{}) {
+	level.Error(logger).Log(keyvals...)
+}
+func warn(keyvals ...interface{}) {
+	level.Warn(logger).Log(keyvals...)
+}
+
+func debug(keyvals ...interface{}) {
+	level.Debug(logger).Log(keyvals...)
 }

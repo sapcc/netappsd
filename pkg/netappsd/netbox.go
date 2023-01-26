@@ -1,4 +1,4 @@
-package main
+package netappsd
 
 import (
 	"fmt"
@@ -47,10 +47,10 @@ func getFilersByTag(nb *Netbox, region, tag string) (Filers, error) {
 	if err != nil {
 		return nil, err
 	}
-	return makeFilers(nb, devices), nil
+	return makeFilers(nb, region, devices), nil
 }
 
-func makeFilers(nb *Netbox, devices []*models.DeviceWithConfigContext) Filers {
+func makeFilers(nb *Netbox, region string, devices []*models.DeviceWithConfigContext) Filers {
 	// IP address is not maintained in netbox for the filer cluster, therefore
 	// filer name is used to determin the host name.
 	//
