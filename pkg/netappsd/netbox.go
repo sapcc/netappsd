@@ -57,7 +57,7 @@ func makeFilers(nb *Netbox, region string, devices []*models.DeviceWithConfigCon
 	// TODO: Use the ip address of the first node as the host ip. To do that,
 	// one should read the IP of the installed device on the first node
 	// bay.
-	filers := make(Filers)
+	filers := make(Filers, 0)
 	for _, d := range devices {
 		// Ignore filer cluster with no nodes
 		if deviceBays, err := nb.GetDeviceBaysByDeviceID(d.ID); err == nil {
@@ -79,12 +79,12 @@ func makeFilers(nb *Netbox, region string, devices []*models.DeviceWithConfigCon
 				}
 			}
 			if hasChildDevice {
-				filers[*d.Name] = Filer{
-					Name: *d.Name,
-					Host: *d.Name + ".cc." + region + ".cloud.sap",
-					AZ:   strings.ToLower(*d.Site.Name),
-					IP:   ip,
-				}
+				filers = append(filers, Filer{
+					Name:             *d.Name,
+					Host:             *d.Name + ".cc." + region + ".cloud.sap",
+					AvailabilityZone: strings.ToLower(*d.Site.Name),
+					IP:               ip,
+				})
 			}
 		}
 	}
