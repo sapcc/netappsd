@@ -4,13 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
-	sd "github.com/sapcc/netappsd/pkg/netappsd"
+	"github.com/sapcc/go-bits/httpapi"
 )
 
 var (
@@ -26,66 +27,59 @@ var (
 )
 
 func main() {
-	nb, err := sd.NewNetboxClient(netboxHost, netboxToken)
-	if err != nil {
-		erro(err)
-		os.Exit(1)
+	promUrl := os.Getenv("NETAPPSD_PROMETHEUS_URL")
+	if promUrl == "" {
+		logFatal("env variable NETAPPSD_PROMETHEUS_URL not set")
 	}
-	c, err := sd.NewFilerConfig(configpath, nb)
+	fq, err := NewFilerQueue(promUrl)
 	if err != nil {
-		erro(fmt.Sprintf("new config: %s", err))
-		os.Exit(1)
-	}
-	_, fs, err := c.Fetch(region, query)
-	if err != nil {
-		erro(fmt.Sprintf("fetch filers: %s", err))
-		os.Exit(1)
-	}
-	err = c.RenderAndWrite()
-	if err != nil {
-		erro(fmt.Sprintf("write rendered files: %s", err))
-		os.Exit(1)
-	}
-	for _, f := range fs {
-		info("new filer", "name", f.Name, "host", f.Host, "az", f.AvailabilityZone, "ip", f.IP)
+		logFatal(err)
 	}
 
-	// create context
 	ctx := cancelCtxOnSigterm(context.Background())
 
-	// set timer to refresh config
-	ticker := time.NewTicker(time.Duration(updateInterval) * time.Second)
-	defer ticker.Stop()
-
-	// stop ticker before exit properly
-	quit := func(code int) int {
+	go func() {
+		ticker := time.NewTicker(time.Duration(updateInterval) * time.Second)
 		defer ticker.Stop()
-		return code
+
+		// stop ticker before exit properly
+		stopTicker := func(code int) int {
+			defer ticker.Stop()
+			return code
+		}
+
+		for {
+			err = fq.QueryFilersFromNetbox(region, query)
+			if err != nil {
+				logError(err)
+				os.Exit(stopTicker(1))
+			}
+			for _, f := range fq.filers {
+				debug("new filer", "name", f.Name, "host", f.Host, "az", f.AvailabilityZone, "ip", f.IP)
+			}
+			err = fq.QueryFilersFromPrometheus()
+			if err != nil {
+				logError(err)
+				os.Exit(stopTicker(1))
+			}
+			for f, s := range fq.states {
+				info("", "name", f, "state", s)
+			}
+
+			select {
+			case <-ticker.C:
+			case <-ctx.Done():
+				os.Exit(0)
+			}
+		}
+	}()
+
+	srv := &http.Server{
+		Handler: httpapi.Compose(),
+		Addr:    "127.0.0.1:8000",
 	}
+	logFatal(srv.ListenAndServe())
 
-	for {
-		// fetch filers and test if config are changed
-		changed, err := doUpdate(c)
-		if err != nil {
-			erro(err)
-			os.Exit(quit(1))
-		}
-
-		if changed {
-			// exit with 1 if new filer found
-			// pod will be restarted when container fails with exit code 1 ???
-			os.Exit(quit(1))
-		}
-
-		debug(fmt.Sprintf("No new filers found, continue in %d seconds..", updateInterval))
-
-		select {
-		case <-ticker.C:
-			continue
-		case <-ctx.Done():
-			return
-		}
-	}
 }
 
 func init() {
@@ -94,7 +88,7 @@ func init() {
 	flag.StringVar(&netboxHost, "netbox-host", "netbox.global.cloud.sap", "netbox host")
 	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
 	flag.StringVar(&configpath, "config-dir", "./", "Directory where config and template files are located")
-	flag.StringVar(&logLevel, "log-level", "debug", "log level")
+	flag.StringVar(&logLevel, "log-level", "info", "log level")
 	flag.Int64Var(&updateInterval, "interval", 900, "update interval in seconds")
 	flag.Parse()
 
@@ -120,36 +114,45 @@ func init() {
 	level.Info(logger).Log("msg", fmt.Sprintf("config and template dir: %s", configpath))
 }
 
-// doUpdate fetches data and compare with old data
-func doUpdate(c *sd.FilerConfig) (changed bool, err error) {
-	ff, nf, err := c.Fetch(region, query)
-	if err != nil {
-		return
-	}
-	filers := make(map[string]sd.Filer, len(ff))
-	for _, f := range ff {
-		filers[f.Name] = f
-	}
-	newFilers := make(map[string]sd.Filer, len(nf))
-	for _, f := range nf {
-		newFilers[f.Name] = f
-	}
+func (q *filerQueue) Export() {
+	for {
+		// // add filers to queue if not being scraped
+		// filers := q.QueryFilersInNetbox()
+		// for _, filer := range filers {
+		// 	if ok := q.running[filer]; ok {
+		// 		continue
+		// 	}
+		// 	if ok := q.staging[filer]; ok {
+		// 		continue
+		// 	}
+		// 	if ok := q.queued[filer]; !ok {
+		// 		add_queue(filer)
+		// 	}
+		// }
+		//
+		// //
+		// for filer := range q.running {
+		// 	if ok := running_filers[filer]; !ok {
+		// 		remove_running(filer)
+		// 		export_missing_filer(filer)
+		// 	}
+		// }
+		//
+		// // when staging filers are not removed in 10 runs
+		// for filer := range q.staging {
+		// 	count := add_staging_count(filer)
+		// 	if count >= 10 {
+		// 		remove_staging(filer)
+		// 		export_missing_filer()
+		// 	}
+		// }
 
-	// compoare old and new filers
-	for name, newf := range newFilers {
-		if oldf, ok := filers[name]; !ok && oldf != newf {
-			info("new filer", "name", newf.Name, "host", newf.Host, "az", newf.AvailabilityZone, "ip", newf.IP)
-			changed = true
-		}
-	}
-	for name, oldf := range filers {
-		if _, ok := newFilers[name]; !ok {
-			warn("remove filer", "name", oldf.Name, "host", oldf.Host)
-			changed = true
-		}
-	}
+		// running_filers := compare_staging_files(q.staging, running_filers)
+		// for filer := range running_filers {
+		//     if filer := q.staging[filer] {
+		//       move_staging_to_running(filer)
+		//     }
+		// }
 
-	// write
-	err = c.RenderAndWrite()
-	return
+	}
 }

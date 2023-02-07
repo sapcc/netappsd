@@ -22,21 +22,34 @@ func cancelCtxOnSigterm(ctx context.Context) context.Context {
 }
 
 func info(msg string, keyvals ...interface{}) {
-	keyvals = append([]interface{}{"msg", msg}, keyvals...)
+	if msg != "" {
+		keyvals = append([]interface{}{"msg", msg}, keyvals...)
+	}
 	level.Info(logger).Log(keyvals...)
 }
 
 func warn(msg string, keyvals ...interface{}) {
-	keyvals = append([]interface{}{"msg", msg}, keyvals...)
+	if msg != "" {
+		keyvals = append([]interface{}{"msg", msg}, keyvals...)
+	}
 	level.Warn(logger).Log(keyvals...)
 }
 
-func erro(err interface{}, keyvals ...interface{}) {
+func debug(msg string, keyvals ...interface{}) {
+	if msg != "" {
+		keyvals = append([]interface{}{"msg", msg}, keyvals...)
+	}
+	level.Debug(logger).Log(keyvals...)
+}
+
+func logError(err interface{}, keyvals ...interface{}) {
 	keyvals = append([]interface{}{"error", err}, keyvals...)
 	level.Error(logger).Log(keyvals...)
 }
 
-func debug(msg string, keyvals ...interface{}) {
-	keyvals = append([]interface{}{"msg", msg}, keyvals...)
-	level.Debug(logger).Log(keyvals...)
+func logFatal(err interface{}, keyvals ...interface{}) {
+	if err != nil {
+		logError(err, keyvals...)
+		os.Exit(1)
+	}
 }
