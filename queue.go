@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"html/template"
+	"io"
 	"net/http"
+	"path/filepath"
 	"sync"
 
 	"github.com/gorilla/mux"
@@ -135,7 +138,8 @@ func (q *filerQueue) DiscoverFilers(region, query string) error {
 }
 
 func (q *filerQueue) AddTo(r *mux.Router) {
-	r.Methods("GET", "HEAD").Path("/newfiler").HandlerFunc(q.HandleNewFilerRequest)
+	// r.Methods("GET", "HEAD").Path("/newfiler").HandlerFunc(q.HandleNewFilerRequddst)
+	r.Methods("GET", "HEAD").Path("/harvest.yaml").HandlerFunc(q.HandleHarvestYamlRequest)
 }
 
 // HandleNewFilerRequest serves a new filer in queue to requester
@@ -144,22 +148,34 @@ func (q *filerQueue) HandleNewFilerRequest(w http.ResponseWriter, r *http.Reques
 	defer q.mu.Unlock()
 
 	filer, found := q.findNewFiler()
+	if !found {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	jsonResp, err := json.Marshal(filer)
 	if err != nil {
 		logError(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonResp)
+}
 
-	if found {
-		q.states[filer.Name] = stagedFiler
-		debug("set filer state", "state", stagedFiler, "name", filer.Name)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(jsonResp)
+func (q *filerQueue) HandleHarvestYamlRequest(w http.ResponseWriter, r *http.Request) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	filer, found := q.findNewFiler()
+	if !found {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-
-	w.WriteHeader(http.StatusNoContent)
+	err := q.parseHarvestYaml(w, filer)
+	if err != nil {
+		logError(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (q *filerQueue) findNewFiler() (sd.Filer, bool) {
@@ -170,10 +186,20 @@ func (q *filerQueue) findNewFiler() (sd.Filer, bool) {
 		if s == newFiler {
 			for _, filer := range q.filers {
 				if filer.Name == filerName {
+					debug("set filer state", "state", stagedFiler, "name", filer.Name)
+					q.states[filer.Name] = stagedFiler
 					return filer, true
 				}
 			}
 		}
 	}
 	return sd.Filer{}, false
+}
+
+func (q *filerQueue) parseHarvestYaml(wr io.Writer, filer sd.Filer) error {
+	t, err := template.ParseGlob(filepath.Join(configpath, "harvest.yaml.tpl"))
+	if err != nil {
+		return err
+	}
+	return t.Execute(wr, sd.Filers{filer})
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -14,33 +15,30 @@ import (
 )
 
 var (
-	query            string
-	region           string
-	namespace        string
+	addr             string
 	configpath       string
+	logLevel         string
+	namespace        string
 	netboxHost       string
 	netboxToken      string
-	logLevel         string
+	promUrl          string
+	query            string
+	region           string
 	logger           log.Logger
-	discoverInterval int64
+	discoverInterval time.Duration
+	updateInterval   time.Duration
 )
 
 func main() {
-	promUrl := os.Getenv("NETAPPSD_PROMETHEUS_URL")
-	if promUrl == "" {
-		logFatal("env variable NETAPPSD_PROMETHEUS_URL not set")
-	}
+	ctx := cancelCtxOnSigterm(context.Background())
 	fq, err := NewFilerQueue(promUrl)
 	if err != nil {
 		logFatal(err)
 	}
 
-	ctx := cancelCtxOnSigterm(context.Background())
-	updateStateInterval := 300 * time.Second
-	cnt := 0
-
 	go func() {
-		ticker := time.NewTicker(updateStateInterval)
+		info(fmt.Sprintf("update filer states every %s", updateInterval))
+		ticker := time.NewTicker(updateInterval)
 		defer ticker.Stop()
 
 		for {
@@ -50,7 +48,6 @@ func main() {
 			}
 			select {
 			case <-ticker.C:
-				cnt += 1
 			case <-ctx.Done():
 				os.Exit(0)
 			}
@@ -58,18 +55,14 @@ func main() {
 	}()
 
 	go func() {
-		ticker := time.NewTicker(time.Duration(discoverInterval) * time.Second)
-		stopTicker := func(code int) int {
-			defer ticker.Stop()
-			return code
-		}
+		info(fmt.Sprintf("discover new filers every %s", discoverInterval))
+		ticker := time.NewTicker(discoverInterval)
 		defer ticker.Stop()
 
 		for {
 			err = fq.DiscoverFilers(region, query)
 			if err != nil {
 				logError(err)
-				os.Exit(stopTicker(1))
 			}
 			select {
 			case <-ticker.C:
@@ -79,22 +72,26 @@ func main() {
 		}
 	}()
 
+	info(fmt.Sprintf("config and template dir: %s", configpath))
+	info(fmt.Sprintf("starting server at address %s", addr))
 	srv := &http.Server{
 		Handler: httpapi.Compose(fq),
-		Addr:    "127.0.0.1:8000",
+		Addr:    addr,
 	}
 	logFatal(srv.ListenAndServe())
 
 }
 
 func init() {
+	flag.StringVar(&addr, "address", "0.0.0.0:8000", "server address")
 	flag.StringVar(&query, "query", "", "query")
 	flag.StringVar(&region, "region", "", "region")
 	flag.StringVar(&netboxHost, "netbox-host", "netbox.global.cloud.sap", "netbox host")
 	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
 	flag.StringVar(&configpath, "config-dir", "./", "Directory where config and template files are located")
 	flag.StringVar(&logLevel, "log-level", "info", "log level")
-	flag.Int64Var(&discoverInterval, "interval", 300, "discover interval in seconds")
+	flag.DurationVar(&discoverInterval, "discover-interval", 5*time.Minute, "time interval between dicovering filers from netbox")
+	flag.DurationVar(&updateInterval, "update-interval", 3*time.Minute, "time interval between state updates from prometheus")
 	flag.Parse()
 
 	logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
@@ -115,6 +112,8 @@ func init() {
 		level.Error(logger).Log("msg", "region must be specified")
 		os.Exit(1)
 	}
-
-	// level.Info(logger).Log("msg", fmt.Sprintf("config and template dir: %s", configpath))
+	promUrl = os.Getenv("NETAPPSD_PROMETHEUS_URL")
+	if promUrl == "" {
+		logFatal("env variable NETAPPSD_PROMETHEUS_URL not set")
+	}
 }
