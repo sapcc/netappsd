@@ -52,24 +52,23 @@ func NewFilerQueue(prometheusUrl string) (*filerQueue, error) {
 // Staged or scraped filers are not served. A filer is set to staged
 // immediately after it is serverd, until it is set to scraped when the filer's
 // metrics are in the prometheus. However a staged filer will be removed from
-// queue after two calls of UpdateState(), so that it can be served again to
+// queue after two calls of ObserveMetrics(), so that it can be served again to
 // another client, assuming the first client has failed to start the NetApp
 // exporter. Adjust the calling intervals to tune the time how long a filer can
 // stay in staged state. The removed filer will be later added to the queue by
 // DiscoverFilers().
 
-// UpdateState determins the filers' states by querying the metrics generated
+// ObserveMetrics determins the filers' states by querying the metrics generated
 // by the netapp exporters in prometheus. If filer's metrics are found, its
 // state is set to scrapedFiler. If no metric found for a filer in
 // "scrapedFiler" state, it is removed from queue's state. If no metric is
 // found for a filer in stagingFiler (or greater) state, its state is increased
 // by one.
-func (q *filerQueue) UpdateState() error {
+func (q *filerQueue) ObserveMetrics(query string) error {
 	// Do not serve any filer when prome query fails to avoid starting multiple
 	// exporters for same filer.
 	q.ready = false
 
-	query := "count by (cluster) (netapp_aggr_labels)"
 	resultVectors, err := q.Prometheus.GetVector(query)
 	if err != nil {
 		return err
@@ -139,7 +138,7 @@ func (q *filerQueue) DiscoverFilers(region, query string) error {
 
 func (q *filerQueue) AddTo(r *mux.Router) {
 	// r.Methods("GET", "HEAD").Path("/newfiler").HandlerFunc(q.HandleNewFilerRequddst)
-	r.Methods("GET", "HEAD").Path("/harvest.yaml").HandlerFunc(q.HandleHarvestYamlRequest)
+	r.Methods("GET", "HEAD").Path("/harvest.yml").HandlerFunc(q.HandleHarvestYamlRequest)
 }
 
 // HandleNewFilerRequest serves a new filer in queue to requester
@@ -197,7 +196,7 @@ func (q *filerQueue) findNewFiler() (sd.Filer, bool) {
 }
 
 func (q *filerQueue) parseHarvestYaml(wr io.Writer, filer sd.Filer) error {
-	t, err := template.ParseGlob(filepath.Join(configpath, "harvest.yaml.tpl"))
+	t, err := template.ParseGlob(filepath.Join(configpath, "harvest.yml.tpl"))
 	if err != nil {
 		return err
 	}

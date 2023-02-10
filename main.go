@@ -22,6 +22,7 @@ var (
 	netboxHost       string
 	netboxToken      string
 	promUrl          string
+	promQuery        string
 	query            string
 	region           string
 	logger           log.Logger
@@ -42,7 +43,7 @@ func main() {
 		defer ticker.Stop()
 
 		for {
-			err = fq.UpdateState()
+			err = fq.ObserveMetrics(promQuery)
 			if err != nil {
 				logError(err)
 			}
@@ -116,4 +117,10 @@ func init() {
 	if promUrl == "" {
 		logFatal("env variable NETAPPSD_PROMETHEUS_URL not set")
 	}
+	promQuery = os.Getenv("NETAPPSD_PROMETHEUS_QUERY")
+	if promQuery == "" {
+		logFatal("env variable NETAPPSD_PROMETHEUS_QUERY not set")
+	}
+	info(fmt.Sprintf("observe metrics from %s", promUrl))
+	info(fmt.Sprintf("observe metrics by query %s", promQuery))
 }
