@@ -1,4 +1,4 @@
-package netappsd
+package netbox
 
 import (
 	"context"
@@ -12,24 +12,24 @@ import (
 	"github.com/netbox-community/go-netbox/netbox/models"
 )
 
-type Netbox struct {
+type Client struct {
 	client *client.NetBoxAPI
 }
 
-func NewNetboxClient(host, token string) (*Netbox, error) {
+func NewClient(host, token string) (Client, error) {
 	tlsClient, err := httptransport.TLSClient(httptransport.TLSClientOptions{InsecureSkipVerify: true})
 	if err != nil {
-		return nil, err
+		return Client{}, err
 	}
 	transport := httptransport.NewWithClient(host, client.DefaultBasePath, []string{"https"}, tlsClient)
 	if token != "" {
 		transport.DefaultAuthentication = httptransport.APIKeyAuth("Authorization", "header", fmt.Sprintf("Token %v", token))
 	}
 	c := client.New(transport, nil)
-	return &Netbox{c}, nil
+	return Client{c}, nil
 }
 
-func (nb *Netbox) FetchDevices(params dcim.DcimDevicesListParams) ([]*models.DeviceWithConfigContext, error) {
+func (nb Client) FetchDevices(params dcim.DcimDevicesListParams) ([]*models.DeviceWithConfigContext, error) {
 	limit := int64(100)
 	offset := int64(0)
 	params.WithLimit(&limit)
@@ -53,7 +53,7 @@ func (nb *Netbox) FetchDevices(params dcim.DcimDevicesListParams) ([]*models.Dev
 	return res, nil
 }
 
-func (nb *Netbox) GetDeviceBaysByDeviceID(deviceID int64) ([]*models.DeviceBay, error) {
+func (nb Client) GetDeviceBaysByDeviceID(deviceID int64) ([]*models.DeviceBay, error) {
 	id := strconv.FormatInt(deviceID, 10)
 	params := dcim.NewDcimDeviceBaysListParamsWithTimeout(30 * time.Second)
 	params.WithDeviceID(&id)
@@ -64,7 +64,7 @@ func (nb *Netbox) GetDeviceBaysByDeviceID(deviceID int64) ([]*models.DeviceBay, 
 	return res.Payload.Results, nil
 }
 
-func (nb *Netbox) GetDeviceByID(id int64) (*models.DeviceWithConfigContext, error) {
+func (nb Client) GetDeviceByID(id int64) (*models.DeviceWithConfigContext, error) {
 	params := dcim.DcimDevicesReadParams{ID: id}
 	params.WithTimeout(30 * time.Second)
 	params.WithContext(context.Background())

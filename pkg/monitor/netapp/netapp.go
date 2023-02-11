@@ -1,17 +1,18 @@
-package netappsd
+package netapp
 
 import (
 	"github.com/prometheus/common/model"
 	"github.com/sapcc/go-bits/promquery"
+	"github.com/sapcc/netappsd/pkg/netbox"
 )
 
 type NetappMonitor struct {
-	Netbox     *Netbox
+	Netbox     netbox.Client
 	Prometheus promquery.Client
 }
 
 func NewNetappMonitor(netboxHost, netboxToken, promUrl string) (NetappMonitor, error) {
-	nb, err := NewNetboxClient(netboxHost, netboxToken)
+	nb, err := netbox.NewClient(netboxHost, netboxToken)
 	if err != nil {
 		return NetappMonitor{}, err
 	}
@@ -42,7 +43,7 @@ func (n NetappMonitor) Observe(promQ, label string) (obs []string, err error) {
 }
 
 func (n NetappMonitor) Discover(region, query string) (map[string]interface{}, error) {
-	filers, err := GetFilers(n.Netbox, region, query)
+	filers, err := n.Netbox.GetFilers(region, query)
 	if err != nil {
 		return nil, err
 	}

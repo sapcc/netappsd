@@ -1,4 +1,4 @@
-package netappsd
+package monitor
 
 import (
 	"context"
@@ -9,11 +9,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
-
-type Monitor interface {
-	Observe(promQ, labelName string) (names []string, e error)
-	Discover(region, query string) (data map[string]interface{}, e error)
-}
 
 type State int32
 
@@ -30,7 +25,7 @@ var (
 )
 
 type MonitorQueue struct {
-	Monitor
+	Watcher
 	mu               sync.Mutex
 	ready            bool
 	states           map[string]State
@@ -39,10 +34,10 @@ type MonitorQueue struct {
 	discoverInterval time.Duration
 }
 
-func NewMonitorQueue(m Monitor, observeInterval, discoverInterval time.Duration) *MonitorQueue {
+func NewMonitorQueue(w Watcher, observeInterval, discoverInterval time.Duration) *MonitorQueue {
 	states := make(map[string]State, 0)
 	return &MonitorQueue{
-		Monitor: m, observeInterval: observeInterval, discoverInterval: discoverInterval, ready: false, states: states,
+		Watcher: w, observeInterval: observeInterval, discoverInterval: discoverInterval, ready: false, states: states,
 	}
 }
 

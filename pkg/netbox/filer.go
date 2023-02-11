@@ -1,4 +1,4 @@
-package netappsd
+package netbox
 
 import (
 	"fmt"
@@ -8,9 +8,16 @@ import (
 	"github.com/netbox-community/go-netbox/netbox/models"
 )
 
-var ()
+type Filer struct {
+	Name             string `json:"name" yaml:"name"`
+	Host             string `json:"host" yaml:"host"`
+	AvailabilityZone string `json:"availability_zone" yaml:"availability_zone"`
+	IP               string `json:"ip,omitempty" yaml:"ip,omitempty"`
+}
 
-func GetFilers(nb *Netbox, region, query string) (filers Filers, err error) {
+type Filers []Filer
+
+func (nb Client) GetFilers(region, query string) (filers Filers, err error) {
 	switch query {
 	case "md", "manila":
 		filers, err = getFilersByTag(nb, region, "manila")
@@ -29,7 +36,7 @@ func GetFilers(nb *Netbox, region, query string) (filers Filers, err error) {
 	return filers, nil
 }
 
-func getFilersByTag(nb *Netbox, region, tag string) (Filers, error) {
+func getFilersByTag(nb Client, region, tag string) (Filers, error) {
 	var (
 		roleFiler    = "filer"
 		manufacturer = "netapp"
@@ -50,7 +57,7 @@ func getFilersByTag(nb *Netbox, region, tag string) (Filers, error) {
 	return makeFilers(nb, region, devices), nil
 }
 
-func makeFilers(nb *Netbox, region string, devices []*models.DeviceWithConfigContext) Filers {
+func makeFilers(nb Client, region string, devices []*models.DeviceWithConfigContext) Filers {
 	// IP address is not maintained in netbox for the filer cluster, therefore
 	// filer name is used to determin the host name.
 	//

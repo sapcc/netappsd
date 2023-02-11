@@ -13,7 +13,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	sd "github.com/sapcc/netappsd/pkg/netappsd"
+	"github.com/sapcc/netappsd/pkg/monitor"
+	"github.com/sapcc/netappsd/pkg/monitor/netapp"
 )
 
 var (
@@ -33,7 +34,7 @@ var (
 )
 
 func main() {
-	m, err := sd.NewNetappMonitor(netboxHost, netboxToken, promUrl)
+	m, err := netapp.NewNetappMonitor(netboxHost, netboxToken, promUrl)
 	if err != nil {
 		log.Err(err).Send()
 	}
@@ -41,7 +42,7 @@ func main() {
 	ctx := cancelCtxOnSigterm(context.Background())
 
 	promLabel = "cluster"
-	q := sd.NewMonitorQueue(m, observeInterval, discoverInterval)
+	q := monitor.NewMonitorQueue(m, observeInterval, discoverInterval)
 	go q.DoObserve(ctx, promQuery, promLabel)
 	go q.DoDiscover(ctx, region, netboxQuery)
 
@@ -94,7 +95,7 @@ func init() {
 	log.Info().Msgf("observe metrics by query %s", promQuery)
 }
 
-func handelHarvestYml(q *sd.MonitorQueue) func(w http.ResponseWriter, r *http.Request) {
+func handelHarvestYml(q *monitor.MonitorQueue) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		next, found := q.NextItem()
 		if !found {
