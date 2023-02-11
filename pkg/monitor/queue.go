@@ -26,24 +26,23 @@ var (
 
 type MonitorQueue struct {
 	Watcher
-	mu               sync.Mutex
-	ready            bool
-	states           map[string]State
-	data             map[string]interface{}
-	observeInterval  time.Duration
-	discoverInterval time.Duration
+	mu     sync.Mutex
+	ready  bool
+	states map[string]State
+	data   map[string]interface{}
+	tplDir string
 }
 
-func NewMonitorQueue(w Watcher, observeInterval, discoverInterval time.Duration) *MonitorQueue {
+func NewMonitorQueue(w Watcher, tmplDir string) *MonitorQueue {
 	states := make(map[string]State, 0)
 	return &MonitorQueue{
-		Watcher: w, observeInterval: observeInterval, discoverInterval: discoverInterval, ready: false, states: states,
+		Watcher: w, ready: false, states: states, tplDir: tmplDir,
 	}
 }
 
-func (q *MonitorQueue) DoObserve(ctx context.Context, promQ, labelName string) error {
-	log.Printf("observe metrics every %s", q.observeInterval)
-	ticker := time.NewTicker(q.observeInterval)
+func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, promQ, labelName string) error {
+	log.Printf("observe metrics every %s", interval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -69,9 +68,9 @@ func (q *MonitorQueue) DoObserve(ctx context.Context, promQ, labelName string) e
 	}
 }
 
-func (q *MonitorQueue) DoDiscover(ctx context.Context, region, query string) error {
-	log.Printf("discover new objects every %s", q.discoverInterval)
-	ticker := time.NewTicker(q.discoverInterval)
+func (q *MonitorQueue) DoDiscover(ctx context.Context, interval time.Duration, region, query string) error {
+	log.Printf("discover new objects every %s", interval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -90,6 +89,17 @@ func (q *MonitorQueue) DoDiscover(ctx context.Context, region, query string) err
 			return nil
 		}
 	}
+}
+
+func (q *MonitorQueue) NextName() (string, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for f, s := range q.states {
+		if s == newState {
+			return f, true
+		}
+	}
+	return "", false
 }
 
 func (q *MonitorQueue) NextItem() (interface{}, bool) {
@@ -151,6 +161,9 @@ func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 }
 
 func (q *MonitorQueue) setStatesAfterDiscovery(data map[string]interface{}) {
+	if !q.ready {
+		return
+	}
 	for f := range data {
 		if _, found := q.states[f]; !found {
 			q.states[f] = newState

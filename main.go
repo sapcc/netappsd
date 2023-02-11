@@ -31,25 +31,26 @@ var (
 	region           string
 	discoverInterval time.Duration
 	observeInterval  time.Duration
+	srv              *http.Server
 )
 
 func main() {
-	m, err := netapp.NewNetappMonitor(netboxHost, netboxToken, promUrl)
-	if err != nil {
-		log.Err(err).Send()
-	}
-
 	ctx := cancelCtxOnSigterm(context.Background())
 
+	m, err := netapp.NewNetappMonitor(netboxHost, netboxToken, promUrl)
+	if err != nil {
+		log.Fatal().Err(err).Send()
+	}
+	q := monitor.NewMonitorQueue(m, configpath)
+
 	promLabel = "cluster"
-	q := monitor.NewMonitorQueue(m, observeInterval, discoverInterval)
-	go q.DoObserve(ctx, promQuery, promLabel)
-	go q.DoDiscover(ctx, region, netboxQuery)
+	go q.DoObserve(ctx, observeInterval, promQuery, promLabel)
+	go q.DoDiscover(ctx, discoverInterval, region, netboxQuery)
 
 	r := mux.NewRouter()
-	r.HandleFunc("/harvest.yml", handelHarvestYml(q))
-	srv := &http.Server{Handler: r, Addr: addr}
+	q.AddRoutes(r.PathPrefix("/netapp").Subrouter())
 	go func() {
+		srv = &http.Server{Handler: r, Addr: addr}
 		log.Info().Msgf("starting server at address %s", addr)
 		log.Fatal().Err(srv.ListenAndServe()).Send()
 	}()
