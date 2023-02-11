@@ -3,15 +3,17 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
+	"html/template"
+	"io"
 	"net/http"
 	"os"
-	"strings"
+	"path/filepath"
 	"time"
 
-	"github.com/go-kit/kit/log"
-	"github.com/go-kit/kit/log/level"
-	"github.com/sapcc/go-bits/httpapi"
+	"github.com/gorilla/mux"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	sd "github.com/sapcc/netappsd/pkg/netappsd"
 )
 
 var (
@@ -23,104 +25,94 @@ var (
 	netboxToken      string
 	promUrl          string
 	promQuery        string
-	query            string
+	promLabel        string
+	netboxQuery      string
 	region           string
-	logger           log.Logger
 	discoverInterval time.Duration
-	updateInterval   time.Duration
+	observeInterval  time.Duration
 )
 
 func main() {
-	ctx := cancelCtxOnSigterm(context.Background())
-	fq, err := NewFilerQueue(promUrl)
+	m, err := sd.NewNetappMonitor(netboxHost, netboxToken, promUrl)
 	if err != nil {
-		logFatal(err)
+		log.Err(err).Send()
 	}
 
-	go func() {
-		info(fmt.Sprintf("update filer states every %s", updateInterval))
-		ticker := time.NewTicker(updateInterval)
-		defer ticker.Stop()
+	ctx := cancelCtxOnSigterm(context.Background())
 
-		for {
-			err = fq.ObserveMetrics(promQuery)
-			if err != nil {
-				logError(err)
-			}
-			select {
-			case <-ticker.C:
-			case <-ctx.Done():
-				os.Exit(0)
-			}
-		}
+	promLabel = "cluster"
+	q := sd.NewMonitorQueue(m, observeInterval, discoverInterval)
+	go q.DoObserve(ctx, promQuery, promLabel)
+	go q.DoDiscover(ctx, region, netboxQuery)
+
+	r := mux.NewRouter()
+	r.HandleFunc("/harvest.yml", handelHarvestYml(q))
+	srv := &http.Server{Handler: r, Addr: addr}
+	go func() {
+		log.Info().Msgf("starting server at address %s", addr)
+		log.Fatal().Err(srv.ListenAndServe()).Send()
 	}()
 
-	go func() {
-		info(fmt.Sprintf("discover new filers every %s", discoverInterval))
-		ticker := time.NewTicker(discoverInterval)
-		defer ticker.Stop()
-
-		for {
-			err = fq.DiscoverFilers(region, query)
-			if err != nil {
-				logError(err)
-			}
-			select {
-			case <-ticker.C:
-			case <-ctx.Done():
-				os.Exit(0)
-			}
-		}
-	}()
-
-	info(fmt.Sprintf("config and template dir: %s", configpath))
-	info(fmt.Sprintf("starting server at address %s", addr))
-	srv := &http.Server{
-		Handler: httpapi.Compose(fq),
-		Addr:    addr,
+	<-ctx.Done()
+	if err := srv.Shutdown(context.TODO()); err != nil {
+		panic(err)
 	}
-	logFatal(srv.ListenAndServe())
-
 }
 
 func init() {
 	flag.StringVar(&addr, "address", "0.0.0.0:8000", "server address")
-	flag.StringVar(&query, "query", "", "query")
+	flag.StringVar(&netboxQuery, "query", "", "query")
 	flag.StringVar(&region, "region", "", "region")
 	flag.StringVar(&netboxHost, "netbox-host", "netbox.global.cloud.sap", "netbox host")
 	flag.StringVar(&netboxToken, "netbox-api-token", "", "netbox token")
 	flag.StringVar(&configpath, "config-dir", "./", "Directory where config and template files are located")
 	flag.StringVar(&logLevel, "log-level", "info", "log level")
 	flag.DurationVar(&discoverInterval, "discover-interval", 5*time.Minute, "time interval between dicovering filers from netbox")
-	flag.DurationVar(&updateInterval, "update-interval", 3*time.Minute, "time interval between state updates from prometheus")
+	flag.DurationVar(&observeInterval, "update-interval", 3*time.Minute, "time interval between state updates from prometheus")
 	flag.Parse()
 
-	logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
-	logger = log.With(logger, "ts", log.DefaultTimestampUTC)
-
-	switch strings.ToLower(logLevel) {
-	case "info":
-		logger = level.NewFilter(logger, level.AllowInfo())
-	case "debug":
-		logger = level.NewFilter(logger, level.AllowDebug())
-	case "warn":
-		logger = level.NewFilter(logger, level.AllowWarn())
-	case "error":
-		logger = level.NewFilter(logger, level.AllowError())
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	zerolog.TimestampFunc = func() time.Time {
+		return time.Now().UTC()
 	}
+	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	log.Logger = log.Output(output)
 
 	if region == "" {
-		level.Error(logger).Log("msg", "region must be specified")
-		os.Exit(1)
+		log.Fatal().Msg("region must be specified")
 	}
 	promUrl = os.Getenv("NETAPPSD_PROMETHEUS_URL")
 	if promUrl == "" {
-		logFatal("env variable NETAPPSD_PROMETHEUS_URL not set")
+		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_URL not set")
 	}
 	promQuery = os.Getenv("NETAPPSD_PROMETHEUS_QUERY")
 	if promQuery == "" {
-		logFatal("env variable NETAPPSD_PROMETHEUS_QUERY not set")
+		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_QUERY not set")
 	}
-	info(fmt.Sprintf("observe metrics from %s", promUrl))
-	info(fmt.Sprintf("observe metrics by query %s", promQuery))
+	log.Info().Msgf("config and template dir: %s", configpath)
+	log.Info().Msgf("observe metrics from %s", promUrl)
+	log.Info().Msgf("observe metrics by query %s", promQuery)
+}
+
+func handelHarvestYml(q *sd.MonitorQueue) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		next, found := q.NextItem()
+		if !found {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		err := parseHarvestYaml(w, next)
+		if err != nil {
+			log.Err(err).Send()
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+
+}
+func parseHarvestYaml(wr io.Writer, data interface{}) error {
+	t, err := template.ParseGlob(filepath.Join(configpath, "harvest.yml.tpl"))
+	if err != nil {
+		return err
+	}
+	return t.Execute(wr, []interface{}{data})
 }
