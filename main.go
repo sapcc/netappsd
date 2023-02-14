@@ -49,6 +49,7 @@ func main() {
 
 	r := mux.NewRouter()
 	q.AddRoutes(r.PathPrefix("/netapp").Subrouter())
+
 	go func() {
 		srv = &http.Server{Handler: r, Addr: addr}
 		log.Info().Msgf("starting server at address %s", addr)

@@ -27,7 +27,7 @@ var (
 type MonitorQueue struct {
 	Watcher
 	mu     sync.Mutex
-	ready  bool
+	ready  int
 	states map[string]State
 	data   map[string]interface{}
 	tplDir string
@@ -36,7 +36,7 @@ type MonitorQueue struct {
 func NewMonitorQueue(w Watcher, tmplDir string) *MonitorQueue {
 	states := make(map[string]State, 0)
 	return &MonitorQueue{
-		Watcher: w, ready: false, states: states, tplDir: tmplDir,
+		Watcher: w, ready: 0, states: states, tplDir: tmplDir,
 	}
 }
 
@@ -50,15 +50,16 @@ func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, pr
 			items, err := q.Observe(promQ, labelName)
 			if err != nil {
 				logger.Err(err).Send()
+				q.ready = q.ready - 1
 				return
 			}
+			q.ready = 1
 			q.setStatesAfterObserving(items)
 		}()
 
-		for n, s := range q.states {
-			logger.Print(q.data[n], s)
+		if q.ready < 0 {
+			logger.Debug().Msg("Discover service is not ready: problem with observing metrics")
 		}
-		logger.Printf("queue readiness = %t", q.ready)
 
 		select {
 		case <-ticker.C:
@@ -75,6 +76,12 @@ func (q *MonitorQueue) DoDiscover(ctx context.Context, interval time.Duration, r
 
 	for {
 		func() {
+			// We don't know workers status when there are problems in observing
+			// metrics from Prometheus. Should not add any new objects, since they
+			// might already be picked by an unobserved worker.
+			if q.ready < 0 {
+				return
+			}
 			data, err := q.Discover(region, query)
 			if err != nil {
 				log.Err(err).Send()
@@ -91,34 +98,9 @@ func (q *MonitorQueue) DoDiscover(ctx context.Context, interval time.Duration, r
 	}
 }
 
-func (q *MonitorQueue) NextName() (string, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	for f, s := range q.states {
-		if s == newState {
-			return f, true
-		}
-	}
-	return "", false
-}
-
-func (q *MonitorQueue) NextItem() (interface{}, bool) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	for f, s := range q.states {
-		if s == newState {
-			return q.data[f], true
-		}
-	}
-	return nil, false
-}
-
 func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 	q.mu.Lock()
-	defer func() {
-		q.ready = true
-		q.mu.Unlock()
-	}()
+	defer q.mu.Unlock()
 	// first pass: set all scraped object to expired
 	for f, s := range q.states {
 		if s == scrapedState {
@@ -129,7 +111,7 @@ func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 	for _, f := range obs {
 		// log only for new and staged objects
 		if q.states[f] == newState || q.states[f] >= stagedState {
-			logger.Debug().Str("name", f).Int("state", int(scrapedState)).Msg("set state")
+			logger.Debug().Str("name", f).Int("state", int(scrapedState)).Msg("set state (scraped)")
 		}
 		q.states[f] = scrapedState
 	}
@@ -151,27 +133,42 @@ func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 			delete(q.states, f)
 			logger.Debug().Str("name", f).Int("state", int(s)).Msg("remove staged object")
 		} else if s >= stagedState {
-			q.states[f] += 1
-			logger.Debug().Str("name", f).Int("state", int(s)).Msg("set state")
+			q.states[f] = s + 1
+			logger.Debug().Str("name", f).Int("state", int(s+1)).Msg("set state")
 		}
 	}
-
-	// set queue readiness to true
-	q.ready = true
 }
 
 func (q *MonitorQueue) setStatesAfterDiscovery(data map[string]interface{}) {
-	if !q.ready {
-		return
-	}
 	for f := range data {
 		if _, found := q.states[f]; !found {
 			q.states[f] = newState
-			logger.Debug().Str("name", f).Int("state", int(newState)).Msg("add object to queue")
-			// set readiness to false when new filer is found
-			// queue should not serve any filer before next Observe is executed
-			q.ready = false
+			logger.Debug().Str("name", f).Int("state", int(newState)).Msg("set state (new)")
 		}
 	}
 	q.data = data
+}
+
+func (q *MonitorQueue) NextName() (string, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	// Do not return any thing when queue is not ready
+	if q.ready >= 0 {
+		for f, s := range q.states {
+			if s == newState {
+				q.states[f] = stagedState
+				logger.Debug().Str("name", f).Int("state", int(stagedState)).Msg("set state (staged)")
+				return f, true
+			}
+		}
+	}
+	return "", false
+}
+
+func (q *MonitorQueue) NextItem() (interface{}, bool) {
+	f, ok := q.NextName()
+	if ok {
+		return q.data[f], true
+	}
+	return nil, false
 }
