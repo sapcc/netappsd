@@ -48,6 +48,7 @@ func main() {
 	go q.DoDiscover(ctx, discoverInterval, region, netboxQuery)
 
 	r := mux.NewRouter()
+	q.RegisterMetrics(r)
 	q.AddRoutes(r.PathPrefix("/netapp").Subrouter())
 
 	go func() {
