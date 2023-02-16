@@ -2,12 +2,10 @@ package monitor
 
 import (
 	"context"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
 
 type State int32
@@ -19,33 +17,29 @@ const (
 	stagedState  State = 3
 )
 
-var (
-	output = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-	// logger = zerolog.New(output).With().Caller().Timestamp().Logger()
-	logger = zerolog.New(output).With().Timestamp().Logger()
-)
-
 type MonitorQueue struct {
-	Watcher
-	mu       sync.Mutex
-	wg       sync.WaitGroup
-	liveness int
-	tplDir   string
+	Monitor
 	data     map[string]interface{}
 	states   map[string]State
+	liveness int
+	log      *zerolog.Logger
+	mu       sync.Mutex
+	wg       sync.WaitGroup
 }
 
-func NewMonitorQueue(w Watcher, tmplDir string) *MonitorQueue {
+func NewMonitorQueue(m Monitor, log *zerolog.Logger) *MonitorQueue {
+	// output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	// log := zerolog.New(output).With().Timestamp().Logger()
 	states := make(map[string]State, 0)
 	q := MonitorQueue{
-		Watcher: w, liveness: 0, states: states, tplDir: tmplDir,
+		Monitor: m, liveness: 0, states: states, log: log,
 	}
 	q.wg.Add(1)
 	return &q
 }
 
 func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, promQ, labelName string) error {
-	log.Printf("Observer runs every %s", interval)
+	q.log.Printf("Observer runs every %s", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -56,21 +50,21 @@ func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, pr
 		func() {
 			items, err := q.Observe(promQ, labelName)
 			if err != nil {
-				logger.Err(err).Send()
+				q.log.Err(err).Send()
 				q.liveness = q.liveness - 1
 				return
 			}
+			q.liveness = 1
 			if !ready {
-				log.Debug().Msg("Observer is ready")
+				q.log.Debug().Msg("Observer is ready")
 				ready = true
 				q.wg.Done()
 			}
-			q.liveness = 1
 			q.setStatesAfterObserving(items)
 		}()
 
 		if q.liveness < 0 {
-			logger.Warn().Msg("Discoverer has problems with observing metrics")
+			q.log.Warn().Msg("Discoverer has problems with observing metrics")
 		}
 
 		select {
@@ -82,13 +76,13 @@ func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, pr
 }
 
 func (q *MonitorQueue) DoDiscover(ctx context.Context, interval time.Duration, region, query string) error {
-	log.Printf("Discoverer runs every %s", interval)
+	q.log.Printf("Discoverer runs every %s", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	// Wait for Observer ready
 	q.wg.Wait()
-	log.Debug().Msg("Discoverer starts")
+	q.log.Debug().Msg("Discoverer starts")
 
 	for {
 		func() {
@@ -100,7 +94,7 @@ func (q *MonitorQueue) DoDiscover(ctx context.Context, interval time.Duration, r
 			}
 			data, err := q.Discover(region, query)
 			if err != nil {
-				log.Err(err).Send()
+				q.log.Err(err).Send()
 				return
 			}
 			q.setStatesAfterDiscovery(data)
@@ -127,7 +121,7 @@ func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 	for _, f := range obs {
 		// log only for new and staged objects
 		if q.states[f] == newState || q.states[f] >= stagedState {
-			logger.Debug().Str("name", f).Int("state", int(scrapedState)).Msg("set state (scraped)")
+			q.log.Debug().Str("name", f).Int("state", int(scrapedState)).Msg("set state (scraped)")
 		}
 		q.states[f] = scrapedState
 	}
@@ -135,7 +129,7 @@ func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 	for f, s := range q.states {
 		if s == expiredState {
 			delete(q.states, f)
-			logger.Debug().Str("name", f).Int("state", int(s)).Msg("remove expired object")
+			q.log.Debug().Str("name", f).Int("state", int(s)).Msg("remove expired object")
 		}
 	}
 	// Staged objects are not candidates to serve, so they should be garbage
@@ -147,10 +141,10 @@ func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 	for f, s := range q.states {
 		if s > stagedState+State(1) {
 			delete(q.states, f)
-			logger.Debug().Str("name", f).Int("state", int(s)).Msg("remove staged object")
+			q.log.Debug().Str("name", f).Int("state", int(s)).Msg("remove staged object")
 		} else if s >= stagedState {
 			q.states[f] = s + 1
-			logger.Debug().Str("name", f).Int("state", int(s+1)).Msg("set state")
+			q.log.Debug().Str("name", f).Int("state", int(s+1)).Msg("set state")
 		}
 	}
 	workedItems.Set(float64(len(obs)))
@@ -160,7 +154,7 @@ func (q *MonitorQueue) setStatesAfterDiscovery(data map[string]interface{}) {
 	for f := range data {
 		if _, found := q.states[f]; !found {
 			q.states[f] = newState
-			logger.Debug().Str("name", f).Int("state", int(newState)).Msg("set state (new)")
+			q.log.Debug().Str("name", f).Int("state", int(newState)).Msg("set state (new)")
 		}
 	}
 	q.data = data
@@ -175,7 +169,7 @@ func (q *MonitorQueue) NextName() (string, bool) {
 		for f, s := range q.states {
 			if s == newState {
 				q.states[f] = stagedState
-				logger.Debug().Str("name", f).Int("state", int(stagedState)).Msg("set state (staged)")
+				q.log.Debug().Str("name", f).Int("state", int(stagedState)).Msg("set state (staged)")
 				return f, true
 			}
 		}

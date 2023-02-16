@@ -3,16 +3,12 @@ package main
 import (
 	"context"
 	"flag"
-	"html/template"
-	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/sapcc/netappsd/pkg/monitor"
 	"github.com/sapcc/netappsd/pkg/monitor/netapp"
 )
@@ -23,15 +19,17 @@ var (
 	logLevel         string
 	namespace        string
 	netboxHost       string
-	netboxToken      string
-	promUrl          string
-	promQuery        string
-	promLabel        string
 	netboxQuery      string
+	netboxToken      string
+	promLabel        string
+	promQuery        string
+	promUrl          string
 	region           string
+	q                *monitor.MonitorQueue
+	srv              *http.Server
 	discoverInterval time.Duration
 	observeInterval  time.Duration
-	srv              *http.Server
+	log              zerolog.Logger
 )
 
 func main() {
@@ -41,15 +39,16 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
-	q := monitor.NewMonitorQueue(m, configpath)
+	q = monitor.NewMonitorQueue(m, &log)
 
 	promLabel = "cluster"
 	go q.DoObserve(ctx, observeInterval, promQuery, promLabel)
 	go q.DoDiscover(ctx, discoverInterval, region, netboxQuery)
 
 	r := mux.NewRouter()
-	q.RegisterMetrics(r)
-	q.AddRoutes(r.PathPrefix("/next").Subrouter())
+	r.Methods("GET", "HEAD").Path("/next/name").HandlerFunc(handleNameRequest)
+	r.Methods("GET", "HEAD").Path("/next/{templateName}.yaml").HandlerFunc(handleYamlRequest(configpath))
+	q.AddMetricsHandler(r)
 
 	go func() {
 		srv = &http.Server{Handler: r, Addr: addr}
@@ -80,7 +79,8 @@ func init() {
 		return time.Now().UTC()
 	}
 	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-	log.Logger = log.Output(output)
+	log = zerolog.New(output).With().Timestamp().Logger()
+	// log = zerolog.New(output).With().Caller().Timestamp().Logger()
 
 	if region == "" {
 		log.Fatal().Msg("region must be specified")

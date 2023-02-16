@@ -3,6 +3,7 @@ module github.com/sapcc/netappsd
 go 1.12
 
 require (
+	github.com/go-logr/logr v1.2.3
 	github.com/go-openapi/runtime v0.19.21
 	github.com/gorilla/mux v1.8.0
 	github.com/netbox-community/go-netbox v0.0.0-20200923200002-49832662a6fd

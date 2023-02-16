@@ -19,7 +19,7 @@ var (
 	})
 )
 
-func (q *MonitorQueue) RegisterMetrics(r *mux.Router) {
+func (q *MonitorQueue) AddMetricsHandler(r *mux.Router) {
 	r.Methods("GET").Path("/metrics").Handler(promhttp.Handler())
 
 }
