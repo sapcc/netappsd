@@ -27,39 +27,50 @@ var (
 
 type MonitorQueue struct {
 	Watcher
-	mu     sync.Mutex
-	ready  int
-	states map[string]State
-	data   map[string]interface{}
-	tplDir string
+	mu       sync.Mutex
+	wg       sync.WaitGroup
+	liveness int
+	tplDir   string
+	data     map[string]interface{}
+	states   map[string]State
 }
 
 func NewMonitorQueue(w Watcher, tmplDir string) *MonitorQueue {
 	states := make(map[string]State, 0)
-	return &MonitorQueue{
-		Watcher: w, ready: 0, states: states, tplDir: tmplDir,
+	q := MonitorQueue{
+		Watcher: w, liveness: 0, states: states, tplDir: tmplDir,
 	}
+	q.wg.Add(1)
+	return &q
 }
 
 func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, promQ, labelName string) error {
-	log.Printf("observe metrics every %s", interval)
+	log.Printf("Observer runs every %s", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	// Starts Discoverer when Observer is ready
+	ready := false
 
 	for {
 		func() {
 			items, err := q.Observe(promQ, labelName)
 			if err != nil {
 				logger.Err(err).Send()
-				q.ready = q.ready - 1
+				q.liveness = q.liveness - 1
 				return
 			}
-			q.ready = 1
+			if !ready {
+				log.Debug().Msg("Observer is ready")
+				ready = true
+				q.wg.Done()
+			}
+			q.liveness = 1
 			q.setStatesAfterObserving(items)
 		}()
 
-		if q.ready < 0 {
-			logger.Debug().Msg("Discover service is not ready: problem with observing metrics")
+		if q.liveness < 0 {
+			logger.Warn().Msg("Discoverer has problems with observing metrics")
 		}
 
 		select {
@@ -71,16 +82,20 @@ func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, pr
 }
 
 func (q *MonitorQueue) DoDiscover(ctx context.Context, interval time.Duration, region, query string) error {
-	log.Printf("discover new objects every %s", interval)
+	log.Printf("Discoverer runs every %s", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	// Wait for Observer ready
+	q.wg.Wait()
+	log.Debug().Msg("Discoverer starts")
 
 	for {
 		func() {
 			// We don't know workers status when there are problems in observing
 			// metrics from Prometheus. Should not add any new objects, since they
 			// might already be picked by an unobserved worker.
-			if q.ready < 0 {
+			if q.liveness < 0 {
 				return
 			}
 			data, err := q.Discover(region, query)
@@ -156,7 +171,7 @@ func (q *MonitorQueue) NextName() (string, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	// Do not return any thing when queue is not ready
-	if q.ready >= 0 {
+	if q.liveness >= 0 {
 		for f, s := range q.states {
 			if s == newState {
 				q.states[f] = stagedState

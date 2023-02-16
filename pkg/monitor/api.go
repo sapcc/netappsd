@@ -12,8 +12,8 @@ import (
 )
 
 func (q *MonitorQueue) AddRoutes(r *mux.Router) {
-	r.Methods("GET", "HEAD").Path("/next").HandlerFunc(q.handleRequest)
-	r.Methods("GET", "HEAD").Path("/next/{templateName}.yaml").HandlerFunc(q.handleRenderRequest)
+	r.Methods("GET", "HEAD").Path("/name").HandlerFunc(q.handleRequest)
+	r.Methods("GET", "HEAD").Path("/{templateName}.yaml").HandlerFunc(q.handleRenderRequest)
 }
 
 func (q *MonitorQueue) handleRequest(w http.ResponseWriter, r *http.Request) {
@@ -23,22 +23,20 @@ func (q *MonitorQueue) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Write([]byte(n))
-
 }
 
 func (q *MonitorQueue) handleRenderRequest(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	tplName := vars["templateName"]
-
-	data, found := q.NextItem()
-	if !found {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
 	tpl, err := template.ParseGlob(filepath.Join(q.tplDir, fmt.Sprintf("%s.yaml.tpl", tplName)))
 	if err != nil {
 		log.Err(err).Send()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data, found := q.NextItem()
+	if !found {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var b bytes.Buffer

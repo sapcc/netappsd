@@ -49,7 +49,7 @@ func main() {
 
 	r := mux.NewRouter()
 	q.RegisterMetrics(r)
-	q.AddRoutes(r.PathPrefix("/netapp").Subrouter())
+	q.AddRoutes(r.PathPrefix("/next").Subrouter())
 
 	go func() {
 		srv = &http.Server{Handler: r, Addr: addr}
@@ -96,27 +96,4 @@ func init() {
 	log.Info().Msgf("config and template dir: %s", configpath)
 	log.Info().Msgf("observe metrics from %s", promUrl)
 	log.Info().Msgf("observe metrics by query %s", promQuery)
-}
-
-func handelHarvestYml(q *monitor.MonitorQueue) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		next, found := q.NextItem()
-		if !found {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		err := parseHarvestYaml(w, next)
-		if err != nil {
-			log.Err(err).Send()
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-	}
-
-}
-func parseHarvestYaml(wr io.Writer, data interface{}) error {
-	t, err := template.ParseGlob(filepath.Join(configpath, "harvest.yml.tpl"))
-	if err != nil {
-		return err
-	}
-	return t.Execute(wr, []interface{}{data})
 }
