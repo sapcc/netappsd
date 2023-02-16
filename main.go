@@ -17,6 +17,7 @@ var (
 	addr             string
 	configpath       string
 	logLevel         string
+	metricsPrefix    string
 	namespace        string
 	netboxHost       string
 	netboxQuery      string
@@ -39,7 +40,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
-	q = monitor.NewMonitorQueue(m, &log)
+	q = monitor.NewMonitorQueue(m, metricsPrefix, &log)
 
 	promLabel = "cluster"
 	go q.DoObserve(ctx, observeInterval, promQuery, promLabel)
@@ -93,6 +94,8 @@ func init() {
 	if promQuery == "" {
 		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_QUERY not set")
 	}
+	metricsPrefix = os.Getenv("NETAPPSD_METRICS_PREFIX")
+
 	log.Info().Msgf("config and template dir: %s", configpath)
 	log.Info().Msgf("observe metrics from %s", promUrl)
 	log.Info().Msgf("observe metrics by query %s", promQuery)

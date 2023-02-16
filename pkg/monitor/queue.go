@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 )
 
@@ -19,21 +20,22 @@ const (
 
 type MonitorQueue struct {
 	Monitor
-	data     map[string]interface{}
-	states   map[string]State
-	liveness int
-	log      *zerolog.Logger
-	mu       sync.Mutex
-	wg       sync.WaitGroup
+	data            map[string]interface{}
+	states          map[string]State
+	liveness        int
+	log             *zerolog.Logger
+	mu              sync.Mutex
+	wg              sync.WaitGroup
+	discoveredGauge prometheus.Gauge
+	workerGauge     prometheus.Gauge
 }
 
-func NewMonitorQueue(m Monitor, log *zerolog.Logger) *MonitorQueue {
-	// output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-	// log := zerolog.New(output).With().Timestamp().Logger()
+func NewMonitorQueue(m Monitor, metricsPrefix string, log *zerolog.Logger) *MonitorQueue {
 	states := make(map[string]State, 0)
 	q := MonitorQueue{
 		Monitor: m, liveness: 0, states: states, log: log,
 	}
+	q.InitMetrics(metricsPrefix)
 	q.wg.Add(1)
 	return &q
 }
@@ -147,7 +149,7 @@ func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 			q.log.Debug().Str("name", f).Int("state", int(s+1)).Msg("set state")
 		}
 	}
-	workedItems.Set(float64(len(obs)))
+	q.workerGauge.Set(float64(len(obs)))
 }
 
 func (q *MonitorQueue) setStatesAfterDiscovery(data map[string]interface{}) {
@@ -158,7 +160,7 @@ func (q *MonitorQueue) setStatesAfterDiscovery(data map[string]interface{}) {
 		}
 	}
 	q.data = data
-	totalItems.Set(float64(len(q.data)))
+	q.discoveredGauge.Set(float64(len(q.data)))
 }
 
 func (q *MonitorQueue) NextName() (string, bool) {

@@ -7,19 +7,29 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var (
-	totalItems = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "total_items",
-		Help: "Total number of discovered items",
-	})
+func (q *MonitorQueue) InitMetrics(prefix string) {
+	tname := "discovered_count"
+	wname := "worker_count"
+	if prefix != "" {
+		tname = prefix + "_" + tname
+		wname = prefix + "_" + wname
+	}
 
-	workedItems = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "worked_items",
-		Help: "Number of items being worked on",
-	})
-)
+	q.discoveredGauge = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: tname,
+			Help: "Total number of discovered items",
+		},
+	)
+	q.workerGauge = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: wname,
+			Help: "Total number of workers",
+		},
+	)
+
+}
 
 func (q *MonitorQueue) AddMetricsHandler(r *mux.Router) {
 	r.Methods("GET").Path("/metrics").Handler(promhttp.Handler())
-
 }
