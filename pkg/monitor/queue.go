@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/model"
 	"github.com/rs/zerolog"
+	"github.com/sapcc/go-bits/promquery"
 )
 
 type State int32
@@ -18,8 +20,8 @@ const (
 	stagedState  State = 3
 )
 
-type MonitorQueue struct {
-	Monitor
+type Monitor struct {
+	Discoverer
 	data            map[string]interface{}
 	states          map[string]State
 	liveness        int
@@ -30,39 +32,56 @@ type MonitorQueue struct {
 	workerGauge     prometheus.Gauge
 }
 
-func NewMonitorQueue(m Monitor, metricsPrefix string, log *zerolog.Logger) *MonitorQueue {
+func NewMonitorQueue(m Discoverer, metricsPrefix string, log *zerolog.Logger) *Monitor {
 	states := make(map[string]State, 0)
-	q := MonitorQueue{
-		Monitor: m, liveness: 0, states: states, log: log,
+	q := Monitor{
+		Discoverer: m, liveness: 0, states: states, log: log,
 	}
 	q.InitMetrics(metricsPrefix)
 	q.wg.Add(1)
 	return &q
 }
 
-func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, promQ, labelName string) error {
+func (q *Monitor) DoObserve(ctx context.Context, interval time.Duration, promUrl, promQ, promL string) error {
 	q.log.Printf("Observer runs every %s", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	promClient, err := promquery.Config{
+		ServerURL: promUrl,
+	}.Connect()
+	if err != nil {
+		return err
+	}
 
 	// Starts Discoverer when Observer is ready
 	ready := false
 
 	for {
 		func() {
-			items, err := q.Observe(promQ, labelName)
+			items, err := q.observe(promClient, promQ, promL)
 			if err != nil {
 				q.log.Err(err).Send()
 				q.liveness = q.liveness - 1
 				return
 			}
+			q.setStatesAfterObserving(items)
+
+			// set observer liveness to a non-negative value
+			// negative liveness values are considered as not live
+			// we don't set liveness to negative immediately when observe fails in above
+			// rather liveness is decreased by one to allow flappy prometheus connections
+			// so the higher liveness is set in next line, the more tolerate to the prometheus connection quality
 			q.liveness = 1
+
+			// starts discovery right after observer is ready
+			// if discoverer starts earlier, it might only start polling netbox in second loop
+			// because it checks observer's liveness
 			if !ready {
 				q.log.Debug().Msg("Observer is ready")
 				ready = true
 				q.wg.Done()
 			}
-			q.setStatesAfterObserving(items)
 		}()
 
 		if q.liveness < 0 {
@@ -77,7 +96,7 @@ func (q *MonitorQueue) DoObserve(ctx context.Context, interval time.Duration, pr
 	}
 }
 
-func (q *MonitorQueue) DoDiscover(ctx context.Context, interval time.Duration, region, query string) error {
+func (q *Monitor) DoDiscover(ctx context.Context, interval time.Duration, region, query string) error {
 	q.log.Printf("Discoverer runs every %s", interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -110,7 +129,7 @@ func (q *MonitorQueue) DoDiscover(ctx context.Context, interval time.Duration, r
 	}
 }
 
-func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
+func (q *Monitor) setStatesAfterObserving(obs []string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	// first pass: set all scraped object to expired
@@ -152,7 +171,7 @@ func (q *MonitorQueue) setStatesAfterObserving(obs []string) {
 	q.workerGauge.Set(float64(len(obs)))
 }
 
-func (q *MonitorQueue) setStatesAfterDiscovery(data map[string]interface{}) {
+func (q *Monitor) setStatesAfterDiscovery(data map[string]interface{}) {
 	for f := range data {
 		if _, found := q.states[f]; !found {
 			q.states[f] = newState
@@ -163,7 +182,7 @@ func (q *MonitorQueue) setStatesAfterDiscovery(data map[string]interface{}) {
 	q.discoveredGauge.Set(float64(len(q.data)))
 }
 
-func (q *MonitorQueue) NextName() (string, bool) {
+func (q *Monitor) NextName() (string, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	// Do not return any thing when queue is not ready
@@ -179,10 +198,24 @@ func (q *MonitorQueue) NextName() (string, bool) {
 	return "", false
 }
 
-func (q *MonitorQueue) NextItem() (interface{}, bool) {
+func (q *Monitor) NextItem() (interface{}, bool) {
 	f, ok := q.NextName()
 	if ok {
 		return q.data[f], true
 	}
 	return nil, false
+}
+
+func (q *Monitor) observe(promClient promquery.Client, promQuery, promLabel string) (obs []string, err error) {
+	resultVectors, err := promClient.GetVector(promQuery)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range resultVectors {
+		v := m.Metric[model.LabelName(promLabel)]
+		if v != "" {
+			obs = append(obs, string(v))
+		}
+	}
+	return obs, nil
 }

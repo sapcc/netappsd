@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func (q *MonitorQueue) InitMetrics(prefix string) {
+func (q *Monitor) InitMetrics(prefix string) {
 	tname := "discovered_count"
 	wname := "worker_count"
 	if prefix != "" {
@@ -30,6 +30,6 @@ func (q *MonitorQueue) InitMetrics(prefix string) {
 
 }
 
-func (q *MonitorQueue) AddMetricsHandler(r *mux.Router) {
+func (q *Monitor) AddMetricsHandler(r *mux.Router) {
 	r.Methods("GET").Path("/metrics").Handler(promhttp.Handler())
 }

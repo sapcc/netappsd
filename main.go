@@ -18,7 +18,6 @@ var (
 	configpath       string
 	logLevel         string
 	metricsPrefix    string
-	namespace        string
 	netboxHost       string
 	netboxQuery      string
 	netboxToken      string
@@ -26,7 +25,7 @@ var (
 	promQuery        string
 	promUrl          string
 	region           string
-	q                *monitor.MonitorQueue
+	q                *monitor.Monitor
 	srv              *http.Server
 	discoverInterval time.Duration
 	observeInterval  time.Duration
@@ -36,14 +35,13 @@ var (
 func main() {
 	ctx := cancelCtxOnSigterm(context.Background())
 
-	m, err := netapp.NewNetappMonitor(netboxHost, netboxToken, promUrl)
+	m, err := netapp.NewNetappDiscoverer(netboxHost, netboxToken)
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
 	q = monitor.NewMonitorQueue(m, metricsPrefix, &log)
 
-	promLabel = "cluster"
-	go q.DoObserve(ctx, observeInterval, promQuery, promLabel)
+	go q.DoObserve(ctx, observeInterval, promUrl, promQuery, promLabel)
 	go q.DoDiscover(ctx, discoverInterval, region, netboxQuery)
 
 	r := mux.NewRouter()
@@ -90,9 +88,13 @@ func init() {
 	if promUrl == "" {
 		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_URL not set")
 	}
-	promQuery = os.Getenv("NETAPPSD_PROMETHEUS_QUERY")
+	promQuery = os.Getenv("NETAPPSD_PROMETHEUS_OBSERVE_QUERY")
 	if promQuery == "" {
-		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_QUERY not set")
+		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_OBSERVE_QUERY not set")
+	}
+	promLabel = os.Getenv("NETAPPSD_PROMETHEUS_OBSERVE_LABEL")
+	if promLabel == "" {
+		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_OBSERVE_LABEL not set")
 	}
 	metricsPrefix = os.Getenv("NETAPPSD_METRICS_PREFIX")
 

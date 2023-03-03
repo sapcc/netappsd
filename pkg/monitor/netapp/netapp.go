@@ -1,48 +1,24 @@
 package netapp
 
 import (
-	"github.com/prometheus/common/model"
-	"github.com/sapcc/go-bits/promquery"
 	"github.com/sapcc/netappsd/pkg/netbox"
 )
 
-type NetappMonitor struct {
-	Netbox     netbox.Client
-	Prometheus promquery.Client
+type NetappDiscoverer struct {
+	Netbox netbox.Client
 }
 
-func NewNetappMonitor(netboxHost, netboxToken, promUrl string) (NetappMonitor, error) {
+func NewNetappDiscoverer(netboxHost, netboxToken string) (NetappDiscoverer, error) {
 	nb, err := netbox.NewClient(netboxHost, netboxToken)
 	if err != nil {
-		return NetappMonitor{}, err
+		return NetappDiscoverer{}, err
 	}
-	prometheus, err := promquery.Config{
-		ServerURL: promUrl,
-	}.Connect()
-	if err != nil {
-		return NetappMonitor{}, err
-	}
-	return NetappMonitor{
-		Netbox:     nb,
-		Prometheus: prometheus,
+	return NetappDiscoverer{
+		Netbox: nb,
 	}, nil
 }
 
-func (n NetappMonitor) Observe(promQ, label string) (obs []string, err error) {
-	resultVectors, err := n.Prometheus.GetVector(promQ)
-	if err != nil {
-		return nil, err
-	}
-	for _, m := range resultVectors {
-		v := m.Metric[model.LabelName(label)]
-		if v != "" {
-			obs = append(obs, string(v))
-		}
-	}
-	return
-}
-
-func (n NetappMonitor) Discover(region, query string) (map[string]interface{}, error) {
+func (n NetappDiscoverer) Discover(region, query string) (map[string]interface{}, error) {
 	filers, err := n.Netbox.GetFilers(region, query)
 	if err != nil {
 		return nil, err
