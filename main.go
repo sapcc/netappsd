@@ -35,7 +35,7 @@ var (
 func main() {
 	ctx := cancelCtxOnSigterm(context.Background())
 
-	m, err := netapp.NewNetappDiscoverer(netboxHost, netboxToken)
+	m, err := netapp.NewNetappDiscoverer(netboxHost, netboxToken, &log)
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
