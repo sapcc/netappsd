@@ -8,26 +8,16 @@ import (
 )
 
 func (q *Monitor) InitMetrics(prefix string) {
-	tname := "discovered_count"
-	wname := "worker_count"
+	name := "discovered_count"
 	if prefix != "" {
-		tname = prefix + "_" + tname
-		wname = prefix + "_" + wname
+		name = prefix + "_" + name
 	}
-
 	q.discoveredGauge = promauto.NewGauge(
 		prometheus.GaugeOpts{
-			Name: tname,
+			Name: name,
 			Help: "Total number of discovered items",
 		},
 	)
-	q.workerGauge = promauto.NewGauge(
-		prometheus.GaugeOpts{
-			Name: wname,
-			Help: "Total number of workers",
-		},
-	)
-
 }
 
 func (q *Monitor) AddMetricsHandler(r *mux.Router) {

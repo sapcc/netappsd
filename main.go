@@ -45,8 +45,8 @@ func main() {
 	go q.DoDiscover(ctx, discoverInterval, region, netboxQuery)
 
 	r := mux.NewRouter()
-	r.Methods("GET", "HEAD").Path("/next/name").HandlerFunc(handleNameRequest)
-	r.Methods("GET", "HEAD").Path("/next/{templateName}.yaml").HandlerFunc(handleYamlRequest(configpath))
+	// r.Methods("GET", "HEAD").Path("/next/name").HandlerFunc(handleNameRequest)
+	r.Methods("POST").Path("/next/{templateName}.yaml").HandlerFunc(handleYamlRequest(configpath))
 	q.AddMetricsHandler(r)
 
 	go func() {

@@ -20,22 +20,25 @@ const (
 	stagedState  State = 3
 )
 
+type Queue struct {
+	states map[string]State
+}
+
 type Monitor struct {
 	Discoverer
 	data            map[string]interface{}
-	states          map[string]State
+	discoveredGauge prometheus.Gauge
 	liveness        int
 	log             *zerolog.Logger
 	mu              sync.Mutex
+	queues          map[string]Queue
 	wg              sync.WaitGroup
-	discoveredGauge prometheus.Gauge
-	workerGauge     prometheus.Gauge
 }
 
 func NewMonitorQueue(m Discoverer, metricsPrefix string, log *zerolog.Logger) *Monitor {
-	states := make(map[string]State, 0)
+	queues := make(map[string]Queue, 0)
 	q := Monitor{
-		Discoverer: m, liveness: 0, states: states, log: log,
+		Discoverer: m, liveness: 0, queues: queues, log: log,
 	}
 	q.InitMetrics(metricsPrefix)
 	q.wg.Add(1)
@@ -129,68 +132,85 @@ func (q *Monitor) DoDiscover(ctx context.Context, interval time.Duration, region
 	}
 }
 
-func (q *Monitor) setStatesAfterObserving(obs []string) {
+func (q *Monitor) setStatesAfterObserving(obs map[string][]string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	// first pass: set all scraped object to expired
-	for f, s := range q.states {
-		if s == scrapedState {
-			q.states[f] = expiredState
+	for r := range obs {
+		if _, found := q.queues[r]; !found {
+			q.queues[r] = Queue{make(map[string]State)}
+		}
+		qq := q.queues[r]
+		// first pass: set all scraped object to expired
+		for f, s := range qq.states {
+			if s == scrapedState {
+				qq.states[f] = expiredState
+			}
+		}
+		// second pass: set observed object to scraped
+		for _, f := range obs[r] {
+			// log only for new and staged objects
+			if qq.states[f] == newState || qq.states[f] >= stagedState {
+				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(scrapedState)).Msg("set state (scraped)")
+			}
+			qq.states[f] = scrapedState
+		}
+		// third pass: now the expired objects are truly expired, remove them
+		for f, s := range qq.states {
+			if s == expiredState {
+				delete(qq.states, f)
+				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(s)).Msg("remove expired object")
+			}
+		}
+		// Staged objects are not candidates to serve, so they should be garbage
+		// collected.
+		// Always increase the state of staged objects by one in each call of this
+		// function, and delete them if their states are larger than
+		// stagedState+2. So they are not garbage collected on the next call after
+		// they are staged, rather they are collected in three calls.
+		for f, s := range qq.states {
+			if s > stagedState+State(2) {
+				delete(qq.states, f)
+				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(s)).Msg("remove staged object")
+			} else if s >= stagedState {
+				qq.states[f] = s + 1
+				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(s+1)).Msg("set state")
+			}
 		}
 	}
-	// second pass: set observed object to scraped
-	for _, f := range obs {
-		// log only for new and staged objects
-		if q.states[f] == newState || q.states[f] >= stagedState {
-			q.log.Debug().Str("name", f).Int("state", int(scrapedState)).Msg("set state (scraped)")
-		}
-		q.states[f] = scrapedState
-	}
-	// third pass: now the expired objects are truly expired, remove them
-	for f, s := range q.states {
-		if s == expiredState {
-			delete(q.states, f)
-			q.log.Debug().Str("name", f).Int("state", int(s)).Msg("remove expired object")
-		}
-	}
-	// Staged objects are not candidates to serve, so they should be garbage
-	// collected.
-	// Always increase the state of staged objects by one in each call of this
-	// function, and delete them if their states are larger than
-	// stagedState+1. So they are not garbage collected on the next call after
-	// they are staged, rather they are collected in two calls.
-	for f, s := range q.states {
-		if s > stagedState+State(1) {
-			delete(q.states, f)
-			q.log.Debug().Str("name", f).Int("state", int(s)).Msg("remove staged object")
-		} else if s >= stagedState {
-			q.states[f] = s + 1
-			q.log.Debug().Str("name", f).Int("state", int(s+1)).Msg("set state")
-		}
-	}
-	q.workerGauge.Set(float64(len(obs)))
 }
 
 func (q *Monitor) setStatesAfterDiscovery(data map[string]interface{}) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
 	for f := range data {
-		if _, found := q.states[f]; !found {
-			q.states[f] = newState
-			q.log.Debug().Str("name", f).Int("state", int(newState)).Msg("set state (new)")
+		for r, qq := range q.queues {
+			if _, found := qq.states[f]; !found {
+				qq.states[f] = newState
+				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(newState)).Msg("set state (new)")
+			}
 		}
 	}
 	q.data = data
 	q.discoveredGauge.Set(float64(len(q.data)))
 }
 
-func (q *Monitor) NextName() (string, bool) {
+func (q *Monitor) NextName(r string) (string, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	// initialize Queue for new replicaSet with filers in q.data
+	if _, found := q.queues[r]; !found {
+		q.queues[r] = Queue{make(map[string]State)}
+		for f := range q.data {
+			q.queues[r].states[f] = newState
+		}
+	}
 	// Do not return any thing when queue is not ready
 	if q.liveness >= 0 {
-		for f, s := range q.states {
+		states := q.queues[r].states
+		for f, s := range states {
 			if s == newState {
-				q.states[f] = stagedState
-				q.log.Debug().Str("name", f).Int("state", int(stagedState)).Msg("set state (staged)")
+				states[f] = stagedState
+				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(stagedState)).Msg("set state (staged)")
 				return f, true
 			}
 		}
@@ -198,23 +218,28 @@ func (q *Monitor) NextName() (string, bool) {
 	return "", false
 }
 
-func (q *Monitor) NextItem() (interface{}, bool) {
-	f, ok := q.NextName()
+func (q *Monitor) NextItem(r string) (interface{}, bool) {
+	f, ok := q.NextName(r)
 	if ok {
 		return q.data[f], true
 	}
 	return nil, false
 }
 
-func (q *Monitor) observe(promClient promquery.Client, promQuery, promLabel string) (obs []string, err error) {
+func (q *Monitor) observe(promClient promquery.Client, promQuery, promLabel string) (map[string][]string, error) {
 	resultVectors, err := promClient.GetVector(promQuery)
 	if err != nil {
 		return nil, err
 	}
+	obs := make(map[string][]string, 0)
 	for _, m := range resultVectors {
+		r := string(m.Metric[model.LabelName("pod_template_hash")])
+		if _, found := obs[r]; !found {
+			obs[r] = make([]string, 0)
+		}
 		v := m.Metric[model.LabelName(promLabel)]
 		if v != "" {
-			obs = append(obs, string(v))
+			obs[r] = append(obs[r], string(v))
 		}
 	}
 	return obs, nil
