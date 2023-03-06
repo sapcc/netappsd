@@ -70,7 +70,7 @@ func init() {
 	flag.StringVar(&configpath, "config-dir", "./", "Directory where config and template files are located")
 	flag.StringVar(&logLevel, "log-level", "info", "log level")
 	flag.DurationVar(&discoverInterval, "discover-interval", 5*time.Minute, "time interval between dicovering filers from netbox")
-	flag.DurationVar(&observeInterval, "update-interval", 3*time.Minute, "time interval between state updates from prometheus")
+	flag.DurationVar(&observeInterval, "update-interval", 1*time.Minute, "time interval between state updates from prometheus")
 	flag.Parse()
 
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
