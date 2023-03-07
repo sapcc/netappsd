@@ -3,7 +3,7 @@ BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 HASH := $(shell git rev-parse HEAD | head -c 7)
 IMAGE_TAG:=$(shell date -u +%Y%m%d%H%M%S)-$(BRANCH)-$(HASH)
 
-GOFILES := $(wildcard *.go) $(wildcard pkg/*/*.go)
+GOFILES := $(wildcard *.go) $(wildcard pkg/*/*.go) $(wildcard pkg/*/*/*.go)
 
 all: build
 

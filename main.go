@@ -18,6 +18,8 @@ var (
 	configpath       string
 	logLevel         string
 	metricsPrefix    string
+	netappUsername   string
+	netappPassword   string
 	netboxHost       string
 	netboxQuery      string
 	netboxToken      string
@@ -35,7 +37,7 @@ var (
 func main() {
 	ctx := cancelCtxOnSigterm(context.Background())
 
-	m, err := netapp.NewNetappDiscoverer(netboxHost, netboxToken, &log)
+	m, err := netapp.NewNetappDiscoverer(netboxHost, netboxToken, netappUsername, netappPassword, &log)
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
@@ -62,6 +64,15 @@ func main() {
 }
 
 func init() {
+	log = NewLogger()
+
+	netappUsername = MustGetenv("NETAPP_USERNAME", log)
+	netappPassword = MustGetenv("NETAPP_PASSWORD", log)
+	promUrl = MustGetenv("NETAPPSD_PROMETHEUS_OBSERVE_URL", log)
+	promQuery = MustGetenv("NETAPPSD_PROMETHEUS_OBSERVE_QUERY", log)
+	promLabel = MustGetenv("NETAPPSD_PROMETHEUS_OBSERVE_LABEL", log)
+	metricsPrefix = os.Getenv("NETAPPSD_METRICS_PREFIX")
+
 	flag.StringVar(&addr, "address", "0.0.0.0:8000", "server address")
 	flag.StringVar(&netboxQuery, "query", "", "query")
 	flag.StringVar(&region, "region", "", "region")
@@ -73,32 +84,29 @@ func init() {
 	flag.DurationVar(&observeInterval, "update-interval", 1*time.Minute, "time interval between state updates from prometheus")
 	flag.Parse()
 
+	if region == "" {
+		log.Fatal().Msg("region must be specified")
+	}
+
+	log.Info().Msgf("config and template dir: %s", configpath)
+	log.Info().Msgf("observe metrics from %s", promUrl)
+	log.Info().Msgf("observe metrics by query %s", promQuery)
+}
+
+func MustGetenv(k string, log zerolog.Logger) string {
+	val := os.Getenv(k)
+	if val == "" {
+		log.Fatal().Msgf("env %s not set", k)
+	}
+	return val
+}
+
+func NewLogger() zerolog.Logger {
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	zerolog.TimestampFunc = func() time.Time {
 		return time.Now().UTC()
 	}
 	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-	log = zerolog.New(output).With().Timestamp().Logger()
+	return zerolog.New(output).With().Timestamp().Logger()
 	// log = zerolog.New(output).With().Caller().Timestamp().Logger()
-
-	if region == "" {
-		log.Fatal().Msg("region must be specified")
-	}
-	promUrl = os.Getenv("NETAPPSD_PROMETHEUS_URL")
-	if promUrl == "" {
-		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_URL not set")
-	}
-	promQuery = os.Getenv("NETAPPSD_PROMETHEUS_OBSERVE_QUERY")
-	if promQuery == "" {
-		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_OBSERVE_QUERY not set")
-	}
-	promLabel = os.Getenv("NETAPPSD_PROMETHEUS_OBSERVE_LABEL")
-	if promLabel == "" {
-		log.Fatal().Msg("env variable NETAPPSD_PROMETHEUS_OBSERVE_LABEL not set")
-	}
-	metricsPrefix = os.Getenv("NETAPPSD_METRICS_PREFIX")
-
-	log.Info().Msgf("config and template dir: %s", configpath)
-	log.Info().Msgf("observe metrics from %s", promUrl)
-	log.Info().Msgf("observe metrics by query %s", promQuery)
 }

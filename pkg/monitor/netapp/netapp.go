@@ -1,26 +1,30 @@
 package netapp
 
 import (
+	"fmt"
 	"time"
 
-	probing "github.com/prometheus-community/pro-bing"
 	"github.com/rs/zerolog"
 	"github.com/sapcc/netappsd/pkg/netbox"
 )
 
 type NetappDiscoverer struct {
-	Netbox netbox.Client
-	log    *zerolog.Logger
+	Netbox         netbox.Client
+	log            *zerolog.Logger
+	netappPassword string
+	netappUsername string
 }
 
-func NewNetappDiscoverer(netboxHost, netboxToken string, log *zerolog.Logger) (NetappDiscoverer, error) {
+func NewNetappDiscoverer(netboxHost, netboxToken string, netappUsername, netappPassword string, log *zerolog.Logger) (NetappDiscoverer, error) {
 	nb, err := netbox.NewClient(netboxHost, netboxToken)
 	if err != nil {
 		return NetappDiscoverer{}, err
 	}
 	return NetappDiscoverer{
-		Netbox: nb,
-		log:    log,
+		Netbox:         nb,
+		log:            log,
+		netappUsername: netappUsername,
+		netappPassword: netappPassword,
 	}, nil
 }
 
@@ -31,27 +35,23 @@ func (n NetappDiscoverer) Discover(region, query string) (map[string]interface{}
 	}
 	data := make(map[string]interface{}, 0)
 	for _, f := range filers {
-		err := probeHost(f.Host)
+		err = n.probe(f.Host, n.netappUsername, n.netappPassword, 10*time.Second)
 		if err != nil {
-			n.log.Warn().Str("host", f.Host).Msg("probing host error")
+			n.log.Warn().Str("host", f.Host).Int("timeout", int(10*time.Second)).Msgf("probe failed: %v", err)
 			continue
 		}
-		n.log.Debug().Str("host", f.Host).Msg("probing host ok")
 		data[f.Name] = f
 	}
 	return data, nil
 }
 
-func probeHost(host string) error {
-	pinger, err := probing.NewPinger(host)
-	if err != nil {
-		return err
+func (n NetappDiscoverer) probe(host, username, password string, timeout time.Duration) error {
+	opts := ClientOptions{
+		BasicAuthUser:     username,
+		BasicAuthPassword: password,
+		Timeout:           timeout,
 	}
-	pinger.Count = 1
-	pinger.Timeout = 500 * time.Millisecond
-	err = pinger.Run() // Blocks until finished.
-	if err != nil {
-		return err
-	}
-	return nil
+	host = fmt.Sprintf("https://%s", host)
+	c := NewRestClient(host, &opts)
+	return c.DoRequest("/api/cluster")
 }
