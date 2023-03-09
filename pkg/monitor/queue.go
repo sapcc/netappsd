@@ -14,9 +14,9 @@ import (
 type State int32
 
 const (
+	unknownState State = -1
 	newState     State = 0
-	scrapedState State = 1
-	expiredState State = 2
+	scrapedState State = 2
 	stagedState  State = 3
 )
 
@@ -26,19 +26,19 @@ type Queue struct {
 
 type Monitor struct {
 	Discoverer
-	data            map[string]interface{}
+	queues          map[string]Queue
+	discovered      map[string]interface{}
 	discoveredGauge prometheus.Gauge
 	liveness        int
 	log             *zerolog.Logger
 	mu              sync.Mutex
-	queues          map[string]Queue
 	wg              sync.WaitGroup
 }
 
-func NewMonitorQueue(m Discoverer, metricsPrefix string, log *zerolog.Logger) *Monitor {
+func NewMonitorQueue(d Discoverer, metricsPrefix string, log *zerolog.Logger) *Monitor {
 	queues := make(map[string]Queue, 0)
 	q := Monitor{
-		Discoverer: m, liveness: 0, queues: queues, log: log,
+		Discoverer: d, liveness: 0, queues: queues, log: log,
 	}
 	q.InitMetrics(metricsPrefix)
 	q.wg.Add(1)
@@ -57,9 +57,6 @@ func (q *Monitor) DoObserve(ctx context.Context, interval time.Duration, promUrl
 		return err
 	}
 
-	// Starts Discoverer when Observer is ready
-	ready := false
-
 	for {
 		func() {
 			items, err := q.observe(promClient, promQ, promL)
@@ -68,23 +65,16 @@ func (q *Monitor) DoObserve(ctx context.Context, interval time.Duration, promUrl
 				q.liveness = q.liveness - 1
 				return
 			}
-			q.setStatesAfterObserving(items)
 
-			// set observer liveness to a non-negative value
-			// negative liveness values are considered as not live
-			// we don't set liveness to negative immediately when observe fails in above
-			// rather liveness is decreased by one to allow flappy prometheus connections
-			// so the higher liveness is set in next line, the more tolerate to the prometheus connection quality
+			// Observer with negative liveness is considered not live. Above,
+			// liveness is not set to -1 immediately after observe fails with error.
+			// Rather it is decreased by one to allow flappy prometheus connections.
+			// Set liveness to a non-negative value when observe is done
+			// successfully. The higher liveness is, more tolerance to prometheus
+			// connection there is.
 			q.liveness = 1
 
-			// starts discovery right after observer is ready
-			// if discoverer starts earlier, it might only start polling netbox in second loop
-			// because it checks observer's liveness
-			if !ready {
-				q.log.Debug().Msg("Observer is ready")
-				ready = true
-				q.wg.Done()
-			}
+			q.setStatesAfterObserving(items)
 		}()
 
 		if q.liveness < 0 {
@@ -104,24 +94,14 @@ func (q *Monitor) DoDiscover(ctx context.Context, interval time.Duration, region
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Wait for Observer ready
-	q.wg.Wait()
-	q.log.Debug().Msg("Discoverer starts")
-
 	for {
 		func() {
-			// We don't know workers status when there are problems in observing
-			// metrics from Prometheus. Should not add any new objects, since they
-			// might already be picked by an unobserved worker.
-			if q.liveness < 0 {
-				return
-			}
 			data, err := q.Discover(region, query)
 			if err != nil {
 				q.log.Err(err).Send()
 				return
 			}
-			q.setStatesAfterDiscovery(data)
+			q.setObservedObjects(data)
 		}()
 
 		select {
@@ -132,84 +112,154 @@ func (q *Monitor) DoDiscover(ctx context.Context, interval time.Duration, region
 	}
 }
 
-func (q *Monitor) setStatesAfterObserving(obs map[string][]string) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	for r := range obs {
-		if _, found := q.queues[r]; !found {
-			q.queues[r] = Queue{make(map[string]State)}
-		}
-		qq := q.queues[r]
-		// first pass: set all scraped object to expired
-		for f, s := range qq.states {
-			if s == scrapedState {
-				qq.states[f] = expiredState
+func (q *Monitor) updateQueueByDiscovered() {
+	if q.discovered == nil {
+		return
+	}
+	// set new item to netState
+	for n := range q.discovered {
+		for _, qq := range q.queues {
+			if _, found := qq.states[n]; !found {
+				qq.states[n] = newState
 			}
 		}
-		// second pass: set observed object to scraped
-		for _, f := range obs[r] {
-			// log only for new and staged objects
-			if qq.states[f] == newState || qq.states[f] >= stagedState {
-				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(scrapedState)).Msg("set state (scraped)")
-			}
-			qq.states[f] = scrapedState
-		}
-		// third pass: now the expired objects are truly expired, remove them
-		for f, s := range qq.states {
-			if s == expiredState {
-				delete(qq.states, f)
-				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(s)).Msg("remove expired object")
-			}
-		}
-		// Staged objects are not candidates to serve, so they should be garbage
-		// collected.
-		// Always increase the state of staged objects by one in each call of this
-		// function, and delete them if their states are larger than
-		// stagedState+2. So they are not garbage collected on the next call after
-		// they are staged, rather they are collected in three calls.
-		for f, s := range qq.states {
-			if s > stagedState+State(2) {
-				delete(qq.states, f)
-				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(s)).Msg("remove staged object")
-			} else if s >= stagedState {
-				qq.states[f] = s + 1
-				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(s+1)).Msg("set state")
+	}
+	for _, qq := range q.queues {
+		for n := range qq.states {
+			if _, found := q.discovered[n]; !found {
+				qq.states[n] = unknownState
 			}
 		}
 	}
 }
 
-func (q *Monitor) setStatesAfterDiscovery(data map[string]interface{}) {
+func (q *Monitor) setStatesAfterObserving(obs map[string][]string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	for f := range data {
-		for r, qq := range q.queues {
-			if _, found := qq.states[f]; !found {
-				qq.states[f] = newState
-				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(newState)).Msg("set state (new)")
+	log := q.log
+
+	// debug obs
+	for r := range obs {
+		for _, n := range obs[r] {
+			log.Debug().Str("replica", r).Str("name", n).Msg("observed items")
+		}
+	}
+
+	// pass 0
+	// initialize Q for replica
+	// set state based on discovered
+	for r := range obs {
+		if _, found := q.queues[r]; !found {
+			q.queues[r] = Queue{make(map[string]State)}
+		}
+	}
+	q.updateQueueByDiscovered()
+
+	// pass 1
+	// scrapedState ->  scrapedState-1 -> ... -> 0
+	// stagedState -> stagedState+1 -> ... -> stagedState+3 -> newState
+	for r, qq := range q.queues {
+		for n, s := range qq.states {
+			switch {
+			case s > 1 && s <= scrapedState:
+				qq.states[n] = s - 1
+				if s-1 == 0 {
+					log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(s-1)).Msg("reset state: scraped -> new")
+				}
+			case s >= stagedState && s <= stagedState+2:
+				qq.states[n] = s + 1
+				log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(s+1)).Msg("set state")
+			case s == stagedState+3:
+				qq.states[n] = newState
+				log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(newState)).Msg("reset state: staged -> new")
 			}
 		}
 	}
-	q.data = data
-	q.discoveredGauge.Set(float64(len(q.data)))
+
+	// pass 2
+	// observed -> scrapedState
+	for r, observed := range obs {
+		for _, n := range observed {
+			if s, found := q.queues[r].states[n]; !found {
+				log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(scrapedState)).Msg("set state to scraped")
+			} else {
+				if s != scrapedState {
+					log.Debug().Str("replicaSet", r).Str("name", n).Int("oldState", int(s)).Int("state", int(scrapedState)).Msg("set state to scraped")
+				}
+			}
+			q.queues[r].states[n] = scrapedState
+		}
+	}
+
+	// // set observed to scrapedState
+	// for r := range obs {
+	// 	qq := q.queues[r]
+	// 	for _, n := range obs[r] {
+	// 		if qq.states[n] != scrapedState {
+	// 			qq.states[n] = scrapedState
+	// 			q.log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(scrapedState)).Msg("set state (scraped)")
+	// 		}
+	// 	}
+	// }
+	//
+	// for r, qq := range q.queues {
+	//
+	// 	for n, s := range qq.states {
+	// 		if _, observed := obs[r]; observed {
+	// 			// if observed, set or keep it to scraped
+	// 			if qq.states[n] != scrapedState {
+	// 				qq.states[n] = scrapedState
+	// 				q.log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(scrapedState)).Msg("set state (scraped)")
+	// 			}
+	// 		} else {
+	// 			// handle those are not observed
+	// 			switch {
+	// 			case s == unknownState:
+	// 				qq.states[n] = newState
+	// 				q.log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(newState)).Msg("set state (new)")
+	// 			case s > newState && s <= scrapedState:
+	// 				qq.states[n] -= 1
+	// 				q.log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(s-1)).Msg("decrease state")
+	// 			case s >= stagedState && s <= stagedState+2:
+	// 				qq.states[n] += 1
+	// 				q.log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(s+1)).Msg("increase state")
+	// 			case s > stagedState+2:
+	// 				qq.states[n] = newState
+	// 				q.log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(newState)).Msg("reset state to new")
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	// debug queues
+	for r, qq := range q.queues {
+		for n, s := range qq.states {
+			log.Debug().Str("replica", r).Str("name", n).Int("state", int(s)).Msg("queue")
+		}
+	}
+}
+
+func (q *Monitor) setObservedObjects(discovered map[string]interface{}) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	// deep copy discovered data to Monitor
+	q.discovered = discovered
+	q.discoveredGauge.Set(float64(len(q.discovered)))
 }
 
 func (q *Monitor) NextName(r string) (string, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	// initialize Queue for new replicaSet with filers in q.data
+	// initialize replicaSet if they are not in queue yet
 	if _, found := q.queues[r]; !found {
 		q.queues[r] = Queue{make(map[string]State)}
-		for f := range q.data {
-			q.queues[r].states[f] = newState
-		}
 	}
-	// Do not return any thing when queue is not ready
+	// when queue is not live, we are not sure about the states
 	if q.liveness >= 0 {
-		states := q.queues[r].states
-		for f, s := range states {
+		qq := q.queues[r]
+		for f, s := range qq.states {
 			if s == newState {
-				states[f] = stagedState
+				qq.states[f] = stagedState
 				q.log.Debug().Str("replicaSet", r).Str("name", f).Int("state", int(stagedState)).Msg("set state (staged)")
 				return f, true
 			}
@@ -221,7 +271,7 @@ func (q *Monitor) NextName(r string) (string, bool) {
 func (q *Monitor) NextItem(r string) (interface{}, bool) {
 	f, ok := q.NextName(r)
 	if ok {
-		return q.data[f], true
+		return q.discovered[f], true
 	}
 	return nil, false
 }
