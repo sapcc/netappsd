@@ -1,6 +1,8 @@
 package monitor
 
 import (
+	"strings"
+
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -8,15 +10,18 @@ import (
 )
 
 func (q *Monitor) InitMetrics(prefix string) {
-	name := "discovered_count"
-	if prefix != "" {
-		name = prefix + "_" + name
-	}
 	q.discoveredGauge = promauto.NewGauge(
 		prometheus.GaugeOpts{
-			Name: name,
+			Name: strings.TrimPrefix(prefix+"_discovered_count", "_"),
 			Help: "Total number of discovered items",
 		},
+	)
+	q.probeFailureGauge = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: strings.TrimPrefix(prefix+"_probe_failure", "_"),
+			Help: "Target probe has failed",
+		},
+		[]string{"host", "reason"},
 	)
 }
 

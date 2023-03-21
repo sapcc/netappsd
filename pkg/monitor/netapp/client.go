@@ -74,11 +74,11 @@ func NewRestClient(host string, options *ClientOptions) *RestClient {
 	}
 }
 
-func (c *RestClient) DoRequest(uri string) error {
+func (c *RestClient) DoRequest(uri string) (*http.Response, error) {
 	url, _ := c.BaseURL.Parse(uri)
 	req, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", c.UserAgent)
@@ -87,17 +87,16 @@ func (c *RestClient) DoRequest(uri string) error {
 	}
 	ctx, cncl := context.WithTimeout(context.Background(), c.options.Timeout)
 	defer cncl()
-	_, err = checkResp(c.client.Do(req.WithContext(ctx)))
-	return err
+	return checkResp(c.client.Do(req.WithContext(ctx)))
 }
 
 func checkResp(resp *http.Response, err error) (*http.Response, error) {
 	if err != nil {
-		return resp, err
+		return nil, err
 	}
 	switch resp.StatusCode {
 	case 200, 201, 202, 204, 205, 206:
-		return resp, err
+		return resp, nil
 	default:
 	}
 	return resp, fmt.Errorf("Error: HTTP code=%d, HTTP status=\"%s\"", resp.StatusCode, http.StatusText(resp.StatusCode))

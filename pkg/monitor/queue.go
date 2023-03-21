@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/rs/zerolog"
 	"github.com/sapcc/go-bits/promquery"
+	"github.com/sapcc/netappsd/pkg/monitor/netapp"
 )
 
 type State int32
@@ -26,12 +27,13 @@ type Queue struct {
 
 type Monitor struct {
 	Discoverer
-	queues          map[string]Queue
-	discovered      map[string]interface{}
-	discoveredGauge prometheus.Gauge
-	liveness        int
-	log             *zerolog.Logger
-	mu              sync.Mutex
+	queues            map[string]Queue
+	discovered        map[string]interface{}
+	discoveredGauge   prometheus.Gauge
+	probeFailureGauge *prometheus.GaugeVec
+	liveness          int
+	log               *zerolog.Logger
+	mu                sync.Mutex
 }
 
 func NewMonitorQueue(d Discoverer, metricsPrefix string, log *zerolog.Logger) *Monitor {
@@ -93,10 +95,16 @@ func (q *Monitor) DoDiscover(ctx context.Context, interval time.Duration, region
 
 	for {
 		func() {
-			data, err := q.Discover(region, query)
+			data, warns, err := q.Discover(region, query)
 			if err != nil {
 				q.log.Err(err).Send()
 				return
+			}
+			q.probeFailureGauge.Reset()
+			for _, e := range warns {
+				ne, _ := e.(*netapp.NetappDiscovererError)
+				q.log.Warn().Str("Host", ne.Host).Msg(ne.Error())
+				q.probeFailureGauge.WithLabelValues(ne.Host, ne.Reason).Set(1)
 			}
 			q.setObservedObjects(data)
 		}()

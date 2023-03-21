@@ -4,48 +4,57 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/sapcc/netappsd/pkg/netbox"
 )
 
+type NetappDiscovererError struct {
+	Host   string
+	Reason string
+	Err    error
+}
+
+func (r *NetappDiscovererError) Error() string {
+	return fmt.Sprintf("%s: %v", r.Reason, r.Err)
+}
+
 type NetappDiscoverer struct {
 	Netbox         netbox.Client
-	log            *zerolog.Logger
 	netappPassword string
 	netappUsername string
 }
 
-func NewNetappDiscoverer(netboxHost, netboxToken string, netappUsername, netappPassword string, log *zerolog.Logger) (NetappDiscoverer, error) {
+func NewNetappDiscoverer(netboxHost, netboxToken string, netappUsername, netappPassword string) (NetappDiscoverer, error) {
 	nb, err := netbox.NewClient(netboxHost, netboxToken)
 	if err != nil {
 		return NetappDiscoverer{}, err
 	}
 	return NetappDiscoverer{
 		Netbox:         nb,
-		log:            log,
 		netappUsername: netappUsername,
 		netappPassword: netappPassword,
 	}, nil
 }
 
-func (n NetappDiscoverer) Discover(region, query string) (map[string]interface{}, error) {
+func (n NetappDiscoverer) Discover(region, query string) (map[string]interface{}, []error, error) {
 	filers, err := n.Netbox.GetFilers(region, query)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	data := make(map[string]interface{}, 0)
+	warns := make([]error, 0)
 	for _, f := range filers {
-		err = n.probe(f.Host, n.netappUsername, n.netappPassword, 10*time.Second)
-		if err != nil {
-			n.log.Warn().Str("host", f.Host).Int("timeout", int(10*time.Second)).Msgf("probe failed: %v", err)
+		w := n.probe(f.Host, n.netappUsername, n.netappPassword, 10*time.Second)
+		if w != nil {
+			warns = append(warns, w)
 			continue
 		}
 		data[f.Name] = f
 	}
-	return data, nil
+	return data, warns, nil
 }
 
 func (n NetappDiscoverer) probe(host, username, password string, timeout time.Duration) error {
+	var reason string
 	opts := ClientOptions{
 		BasicAuthUser:     username,
 		BasicAuthPassword: password,
@@ -53,5 +62,19 @@ func (n NetappDiscoverer) probe(host, username, password string, timeout time.Du
 	}
 	host = fmt.Sprintf("https://%s", host)
 	c := NewRestClient(host, &opts)
-	return c.DoRequest("/api/cluster")
+	resp, err := c.DoRequest("/api/cluster")
+	if err != nil {
+		if resp == nil {
+			reason = "connection error"
+			return &NetappDiscovererError{host, reason, err}
+		}
+		switch resp.StatusCode {
+		case 401:
+			reason = "authentication error"
+		default:
+			reason = "other error"
+		}
+		return &NetappDiscovererError{host, reason, err}
+	}
+	return nil
 }
