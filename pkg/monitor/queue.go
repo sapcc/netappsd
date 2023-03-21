@@ -35,10 +35,10 @@ type Monitor struct {
 }
 
 func NewMonitorQueue(d Discoverer, metricsPrefix string, log *zerolog.Logger) *Monitor {
-	queues := make(map[string]Queue, 0)
 	q := Monitor{
-		Discoverer: d, liveness: 0, queues: queues, log: log,
+		Discoverer: d, liveness: 0, log: log,
 	}
+	q.queues = make(map[string]Queue, 0)
 	q.InitMetrics(metricsPrefix)
 	return &q
 }
@@ -109,6 +109,9 @@ func (q *Monitor) DoDiscover(ctx context.Context, interval time.Duration, region
 	}
 }
 
+// updateQueueByDiscovered updates states based on the discovered items.
+// Unknown items are set to newState, known items, that are not
+// discovered, are set to unknownState.
 func (q *Monitor) updateQueueByDiscovered() {
 	if q.discovered == nil {
 		return
@@ -149,6 +152,8 @@ func (q *Monitor) setStatesAfterObserving(obs map[string][]string) {
 			q.queues[r] = Queue{make(map[string]State)}
 		}
 	}
+	// set first discovered item to newState
+	// set lost items to unknownState
 	q.updateQueueByDiscovered()
 
 	// pass 1: give retention to scraped and staged
@@ -179,7 +184,7 @@ func (q *Monitor) setStatesAfterObserving(obs map[string][]string) {
 			if s, found := q.queues[r].states[n]; !found {
 				log.Debug().Str("replicaSet", r).Str("name", n).Int("state", int(scrapedState)).Msg("set state (scraped)")
 			} else {
-				if !(s > newState && s <= scrapedState) {
+				if s == newState || s >= stagedState {
 					log.Debug().Str("replicaSet", r).Str("name", n).Int("oldState", int(s)).Int("state", int(scrapedState)).Msg("set state (scraped)")
 				}
 			}
