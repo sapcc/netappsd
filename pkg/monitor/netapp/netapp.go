@@ -43,7 +43,10 @@ func (n NetappDiscoverer) Discover(region, query string) (map[string]interface{}
 	data := make(map[string]interface{}, 0)
 	warns := make([]error, 0)
 	for _, f := range filers {
-		w := n.probe(f.Host, n.netappUsername, n.netappPassword, 10*time.Second)
+		if f.IP == "" {
+			continue
+		}
+		w := n.probe(f.Host, f.IP, n.netappUsername, n.netappPassword, 10*time.Second)
 		if w != nil {
 			warns = append(warns, w)
 			continue
@@ -53,15 +56,15 @@ func (n NetappDiscoverer) Discover(region, query string) (map[string]interface{}
 	return data, warns, nil
 }
 
-func (n NetappDiscoverer) probe(host, username, password string, timeout time.Duration) error {
+func (n NetappDiscoverer) probe(host, addr, username, password string, timeout time.Duration) error {
 	var reason string
 	opts := ClientOptions{
 		BasicAuthUser:     username,
 		BasicAuthPassword: password,
 		Timeout:           timeout,
 	}
-	host = fmt.Sprintf("https://%s", host)
-	c := NewRestClient(host, &opts)
+	addr = fmt.Sprintf("https://%s", addr)
+	c := NewRestClient(addr, &opts)
 	resp, err := c.DoRequest("/api/cluster")
 	if err != nil {
 		if resp == nil {
