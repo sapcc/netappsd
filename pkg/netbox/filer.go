@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/netbox-community/go-netbox/netbox/client/dcim"
-	"github.com/netbox-community/go-netbox/netbox/models"
+	"github.com/netbox-community/go-netbox/v3/netbox/client/dcim"
+	"github.com/netbox-community/go-netbox/v3/netbox/models"
 )
 
 type Filer struct {
