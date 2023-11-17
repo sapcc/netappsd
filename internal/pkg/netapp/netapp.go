@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sapcc/netappsd/pkg/netbox"
+	"github.com/sapcc/netappsd/internal/pkg/netbox"
 )
 
 type NetappDiscovererError struct {

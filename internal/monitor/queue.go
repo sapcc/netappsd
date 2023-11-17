@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/rs/zerolog"
 	"github.com/sapcc/go-bits/promquery"
-	"github.com/sapcc/netappsd/pkg/monitor/netapp"
+	"github.com/sapcc/netappsd/internal/pkg/netapp"
 )
 
 type State int32

@@ -9,8 +9,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
-	"github.com/sapcc/netappsd/pkg/monitor"
-	"github.com/sapcc/netappsd/pkg/monitor/netapp"
+	"github.com/sapcc/netappsd/internal/monitor"
+	"github.com/sapcc/netappsd/internal/pkg/netapp"
 )
 
 var (
