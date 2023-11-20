@@ -1,14 +1,15 @@
+!.keep
+
 .direnv/
 .idea/
 .vscode/
 .envrc
 .env
 
-bin/*
+_output/
 debug
 *.out
-*.yaml
-*.yaml.tpl
+# *.yaml
+# *.yaml.tpl
 
-!.keep
 
