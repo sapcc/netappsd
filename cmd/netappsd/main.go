@@ -1,50 +1,32 @@
 package main
 
 import (
-	"context"
-	"log"
-	"net/http"
-	"time"
+	stdlog "log"
+	"os"
 
-	"github.com/sapcc/go-bits/httpapi"
-	"github.com/sapcc/go-bits/httpext"
-	"github.com/sapcc/go-bits/must"
+	"github.com/go-logr/logr"
+	"github.com/go-logr/stdr"
 	"github.com/spf13/cobra"
 )
 
 var (
-	httpListenAddr string
+	log logr.Logger
 )
 
 var cmd = &cobra.Command{
 	Use:   "netappsd",
 	Short: "A simple network application service daemon",
 	Long:  `A simple network application service daemon`,
-	Run: func(_ *cobra.Command, _ []string) {
-		run()
-	},
 }
 
 func main() {
+	cmd.AddCommand(cmdMaster)
+	cmd.AddCommand(cmdWorker)
 	if err := cmd.Execute(); err != nil {
-		log.Fatal(err)
+		log.Error(err, "Failed to execute command")
 	}
 }
 
 func init() {
-	cmd.Flags().StringVarP(&httpListenAddr, "http-listen-addr", "l", ":8080", "The address on which to listen")
-}
-
-func run() {
-	log.Print("Starting netappsd")
-
-	netappsd := NewNetAppSD()
-	go netappsd.Discover(nil)
-
-	handler := httpapi.Compose(netappsd)
-	mux := http.NewServeMux()
-	mux.Handle("/", handler)
-
-	ctx := httpext.ContextWithSIGINT(context.Background(), 10*time.Second)
-	must.Succeed(httpext.ListenAndServeContext(ctx, httpListenAddr, mux))
+	log = stdr.NewWithOptions(stdlog.New(os.Stderr, "", stdlog.LstdFlags), stdr.Options{LogCaller: stdr.All})
 }

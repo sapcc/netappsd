@@ -2,57 +2,44 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	stdlog "log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"text/template"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/go-logr/stdr"
 	"github.com/spf13/cobra"
 )
 
 var (
-	masterUrl string
+	masterUrl        string
+	templateFilePath string = "deployments/netappsd/harvest.yaml.tpl"
+	outputFilePath   string = "_output/arm64/harvest.yaml"
 )
 
-var cmd = &cobra.Command{
-	Use:   "netappsd-worker",
-	Short: "A simple network application service daemon",
-	Long:  `A simple network application service daemon`,
-	Run: func(cmd *cobra.Command, args []string) {
-		log := stdr.NewWithOptions(stdlog.New(os.Stderr, "", stdlog.LstdFlags), stdr.Options{LogCaller: stdr.All})
-		log = log.WithName("netappsd-worker")
-		log.Info("Starting netappsd worker")
+var cmdWorker = &cobra.Command{
+	Use:  "worker",
+	Long: `A simple network application service daemon worker`,
+	Run: func(_ *cobra.Command, _ []string) {
 
-		templateDir := ""
-		tplName := "config.yaml.tpl"
-		tpl, err := template.ParseGlob(filepath.Join(templateDir, fmt.Sprintf("%s.yaml.tpl", tplName)))
+		tpl, err := template.ParseGlob(templateFilePath)
 		if err != nil {
 			panic(err.Error())
 		}
 		// TODO: add graceful shutdown
-		startRun(log, tpl)
+		startWorker(log, tpl)
 	},
-}
-
-func main() {
-
-	if err := cmd.Execute(); err != nil {
-		panic(err)
-	}
 }
 
 func init() {
 	// cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://netappsd-master.netapp-exporters.svc:8080", "The url of the netappsd-master")
 	// cmd.Flags().DurationVarP(&sleepTime, "sleep-time", "s", 10*time.Second, "The time to sleep between requests")
-	cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://localhost:8080", "The url of the netappsd-master")
+	cmdWorker.Flags().StringVarP(&masterUrl, "master-url", "m", "http://localhost:8080", "The url of the netappsd-master")
 }
 
-func startRun(log logr.Logger, tpl *template.Template) {
+func startWorker(log logr.Logger, tpl *template.Template) {
+	log = log.WithName("netappsd-worker")
+	log.Info("Starting netappsd worker")
 
 	ch := make(chan struct{})
 
@@ -73,6 +60,19 @@ func startRun(log logr.Logger, tpl *template.Template) {
 				log.Error(err, "Failed to execute template")
 				continue
 			}
+			// write to file
+			f, err := os.Create(outputFilePath)
+			if err != nil {
+				log.Error(err, "Failed to create file", "path", outputFilePath)
+				continue
+			}
+			_, err = f.Write(b.Bytes())
+			if err != nil {
+				log.Error(err, "Failed to write to file", "path", outputFilePath)
+				continue
+			}
+			f.Close()
+
 			// body, err := ioutil.ReadAll(resp.Body)
 			// if err != nil {
 			// 	fmt.Println(err)
