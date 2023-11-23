@@ -20,7 +20,7 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -69,6 +69,7 @@ spec:
         - name: netappsd
           image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
           imagePullPolicy: Always
+          command: ["netappsd"]
           args:
             - --debug
           resources:
@@ -115,7 +116,7 @@ metadata:
   name: netappsd
   namespace: netapp-exporters
 data:
-  harvest.yaml.tpl: {{ file.Read "./deployments/harvest.yaml.tpl" | toYAML | indent 2 }}
+  harvest.yaml.tpl: {{ file.Read "./deployments/templates/harvest.yaml.tpl" | toYAML | indent 2 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -139,7 +140,7 @@ spec:
         - name: netapp-harvest
           image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
           imagePullPolicy: Always
-          command: ["/netappsd-worker"]
+          command: ["netappsd-worker"]
           args:
             - --debug
             - --master-url
@@ -166,6 +167,14 @@ spec:
                 secretKeyRef:
                   name: netappsd
                   key: netappPassword
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           volumeMounts:
             - name: harvest-yaml-tpl
               mountPath: /harvest.yaml.tpl

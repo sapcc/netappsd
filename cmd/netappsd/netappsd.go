@@ -46,10 +46,10 @@ func NewNetAppSD() *NetAppSD {
 // for the /next/filer.json endpoint, which returns the next filer to be
 // harvested.
 func (n *NetAppSD) AddTo(r *mux.Router) {
-	r.Methods("GET").Path("/{replicaset}/next/filer.json").
+	r.Methods("GET").Path("/{podname}/next/filer.json").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			replicaset := mux.Vars(r)["replicaset"]
-			filer, err := n.Next(replicaset)
+			podname := mux.Vars(r)["podname"]
+			filer, err := n.Next(podname)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

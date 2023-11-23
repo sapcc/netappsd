@@ -18,6 +18,7 @@ var (
 	debug            bool
 	log              *slog.Logger
 	logLvl           *slog.LevelVar
+	podName          string
 	masterUrl        string
 	templateFilePath string
 	outputFilePath   string
@@ -35,6 +36,10 @@ var cmd = &cobra.Command{
 	RunE: func(_ *cobra.Command, _ []string) error {
 		log.Info("Starting netappsd worker", "master-url", masterUrl, "template-file", templateFilePath, "output-file", outputFilePath)
 
+		podName = os.Getenv("POD_NAME")
+		if podName == "" {
+			return fmt.Errorf("Failed to get POD_NAME environment variable")
+		}
 		tpl, err := template.ParseGlob(templateFilePath)
 		if err != nil {
 			return err
@@ -70,8 +75,7 @@ func startWorker(tpl *template.Template) {
 
 	go func() {
 		for ; true; <-time.After(1 * time.Second) {
-
-			resp, err := http.Get(masterUrl + "/next/filer.json")
+			resp, err := http.Get(masterUrl + fmt.Sprintf("/%s/next/filer.json", podName))
 			if err != nil {
 				log.Error("Failed to get next filer", "error", err)
 				continue
