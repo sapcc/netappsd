@@ -43,14 +43,15 @@ build-container: build-netappsd
 	cd $(TEMP_DIR) && sed -i.bak "s|BASEIMAGE|scratch|g" Dockerfile
 	docker build --platform $(OS)/$(ARCH) -t $(REGISTRY)/netappsd-$(ARCH):$(VERSION) $(TEMP_DIR)
 	docker push $(REGISTRY)/netappsd-$(ARCH):$(VERSION)
+	
+.Phony: build-manifest
+build-manifest:
+	gomplate < deployments/templates/netappsd.yaml > $(OUT_DIR)/kubernetes/netappsd.yaml
 
 # Deploy
 # ------
-# .Phony: deploy-k8s
-deployments/netappsd.yaml: deployments/templates/netappsd.yaml
-	gomplate < deployments/templates/netappsd.yaml > deployments/netappsd.yaml
-
-deploy-k8s: deployments/netappsd.yaml
+.Phony: deploy-k8s
+deploy-k8s:
 	gomplate < deployments/kubernetes/netappsd.yaml | kubectl apply -f -
 
 .Phony: delete-k8s

@@ -8,6 +8,9 @@ build:
     - image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64
       docker:
         dockerfile: deployments/Dockerfile
+      hooks:
+        before:
+          - command: ["make", "build-netappsd"]
 manifests:
   rawYaml:
     - _output/kubernetes/netappsd.yaml
