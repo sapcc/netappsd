@@ -1,0 +1,181 @@
+# apiVersion: v1
+# kind: Namespace
+# metadata:
+#   name: netapp-exporters
+# ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: netappsd
+subjects:
+  - kind: ServiceAccount
+    name: netappsd
+---
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+data:
+  netboxToken: {{ .Env.NETBOX_TOKEN | base64.Encode }}
+  netboxURL: {{ .Env.NETBOX_URL | base64.Encode }}
+  netappUsername: {{ .Env.NETAPP_USERNAME | base64.Encode }}
+  netappPassword: {{ .Env.NETAPP_PASSWORD | base64.Encode }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+  labels:
+    app: netappsd
+spec:
+  selector:
+    matchLabels:
+      app: netappsd
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: netappsd
+    spec:
+      serviceAccountName: netappsd
+      containers:
+        - name: netappsd
+          image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
+          imagePullPolicy: Always
+          args:
+            - --debug
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          env:
+            - name: NETBOX_URL
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netboxURL
+            - name: NETBOX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netboxToken
+      volumes:
+        - name: netappsd
+          secret:
+            secretName: netappsd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+  labels:
+    app: netappsd
+spec:
+  ports:
+    - name: netappsd
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: netappsd
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+data:
+  harvest.yaml.tpl: {{ file.Read "./deployments/harvest.yaml.tpl" | toYAML | indent 2 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netapp-harvest
+  namespace: netapp-exporters
+  labels:
+    app: netapp-harvest
+spec:
+  selector:
+    matchLabels:
+      app: netapp-harvest
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: netapp-harvest
+    spec:
+      serviceAccountName: netappsd
+      containers:
+        - name: netapp-harvest
+          image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
+          imagePullPolicy: Always
+          command: ["/netappsd-worker"]
+          args:
+            - --debug
+            - --master-url
+            - http://netappsd.netapp-exporters.svc:8080
+            - --template-file
+            - /harvest.yaml.tpl
+            - --output-file
+            - /harvest.yaml
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          env:
+            - name: NETAPP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netappUsername
+            - name: NETAPP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netappPassword
+          volumeMounts:
+            - name: harvest-yaml-tpl
+              mountPath: /harvest.yaml.tpl
+              subPath: harvest.yaml.tpl
+      volumes:
+        - name: netappsd
+          secret:
+            secretName: netappsd
+        - name: harvest-yaml-tpl
+          configMap:
+            name: netappsd
+---
+

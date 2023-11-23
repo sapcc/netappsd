@@ -1,0 +1,13 @@
+apiVersion: skaffold/v4beta4
+kind: Config
+metadata:
+  name: netappsd
+build:
+  platforms: ["linux/amd64"]
+  artifacts:
+    - image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64
+      docker:
+        dockerfile: deployments/Dockerfile
+manifests:
+  rawYaml:
+    - _output/kubernetes/netappsd.yaml

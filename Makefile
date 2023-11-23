@@ -11,11 +11,12 @@ BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 HASH := $(shell git rev-parse HEAD | head -c 7)
 IMAGE_TAG:=$(shell date -u +%Y%m%d%H%M%S)-$(BRANCH)-$(HASH)
 
-GOFILES := $(wildcard *.go) $(wildcard pkg/*/*.go) $(wildcard pkg/*/*/*.go)
+GOFILES := $(shell find . -name '*.go')
+# $(wildcard internal/*/*.go) $(wildcard internal/*/*/*.go)
 
 all: build
 
-build: bin/netappsd
+# build: bin/netappsd
 
 bin/netappsd: $(GOFILES)
 	go build -o $@ *.go
@@ -23,26 +24,35 @@ bin/netappsd: $(GOFILES)
 bin/netappsd-linux: $(GOFILES)
 	GOOS=linux GOARCH=amd64 go build -o $@ *.go
 
-.Phony: clean docker
-
 docker: Dockerfile bin/netappsd-linux
 	docker build --platform linux/amd64 -t ${IMAGE_NAME}:${IMAGE_TAG} .
 	docker push ${IMAGE_NAME}:${IMAGE_TAG}
 
 # Build
 # -----
+build-netappsd: $(OUT_DIR)/$(ARCH)/netappsd
 
-.PHONY: build-netappsd
-build-netappsd:
+$(OUT_DIR)/$(ARCH)/netappsd: $(GOFILES)
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -o $(OUT_DIR)/$(ARCH)/netappsd ./cmd/netappsd/
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -o $(OUT_DIR)/$(ARCH)/netappsd-worker ./cmd/netappsd-worker/
 
-.PHONY: netappsd-container
-netappsd-container: build-netappsd
-	cp deployments/netappsd/Dockerfile $(TEMP_DIR)
+build-container: build-netappsd
+	cp deployments/Dockerfile $(TEMP_DIR)
 	cp $(OUT_DIR)/$(ARCH)/netappsd $(TEMP_DIR)/netappsd
+	cp $(OUT_DIR)/$(ARCH)/netappsd-worker $(TEMP_DIR)/netappsd-worker
 	cd $(TEMP_DIR) && sed -i.bak "s|BASEIMAGE|scratch|g" Dockerfile
-	docker build -t $(REGISTRY)/netappsd-$(ARCH):$(VERSION) $(TEMP_DIR)
+	docker build --platform $(OS)/$(ARCH) -t $(REGISTRY)/netappsd-$(ARCH):$(VERSION) $(TEMP_DIR)
 	docker push $(REGISTRY)/netappsd-$(ARCH):$(VERSION)
 
-clean:
-	rm -f bin/*
+# Deploy
+# ------
+# .Phony: deploy-k8s
+deployments/netappsd.yaml: deployments/templates/netappsd.yaml
+	gomplate < deployments/templates/netappsd.yaml > deployments/netappsd.yaml
+
+deploy-k8s: deployments/netappsd.yaml
+	gomplate < deployments/kubernetes/netappsd.yaml | kubectl apply -f -
+
+.Phony: delete-k8s
+delete-k8s:
+	kubectl delete -f deployments/kubernetes
