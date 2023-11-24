@@ -12,33 +12,34 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/rs/zerolog/log"
 	"github.com/sapcc/netappsd/internal/pkg/netbox"
 )
 
 type NetAppSD struct {
+	NetboxClient        *netbox.Client
+	KubernetesClientset *kubernetes.Clientset
 	AppLabel            string
 	Namespace           string
 	Region              string
 	ServiceType         string
-	NetboxClient        *netbox.Client
-	KubernetesClientset *kubernetes.Clientset
+	Ready               bool
+	filers              []netbox.Filer
 	mu                  sync.Mutex
 	newreplicaset       string
 	queue               chan netbox.Filer
 }
 
-// Discover starts a discovery loop that runs every 5 minutes. It can be
-// canceled by sending a signal to the cancel channel.
+// Discover is a loop that periodically queries netbox for filers and builds a
+// queue of filers to be harvested.
 func (n *NetAppSD) Discover(cancel <-chan struct{}) {
 	for ; true; <-time.After(5 * time.Minute) {
 		select {
 		case <-cancel:
 			return
-		default:
-			func() {
-				n.discover(true)
-			}()
+		case <-time.After(5 * time.Minute):
+			n.discover(true)
+		case <-time.After(5 * time.Second):
+			n.buildQueue(true)
 		}
 	}
 }
@@ -47,14 +48,22 @@ func (n *NetAppSD) Discover(cancel <-chan struct{}) {
 func (n *NetAppSD) Next(podName string) (netbox.Filer, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if !n.Ready {
+		go func() {
+			n.discover(true)
+			n.Ready = true
+		}()
+		err := fmt.Errorf("netappsd is not ready yet")
+		return netbox.Filer{}, err
+	}
 
-	// discover new targets if request is from new replicaset
+	// rebuild target queue if request is from new replicaset
 	r := strings.Split(podName, "-")
 	replicaset := strings.Join(r[:len(r)-1], "-")
 	if replicaset != n.newreplicaset {
 		slog.Info("new replicaset detected, discovering new targets", "replicaSet", replicaset)
 		n.newreplicaset = replicaset
-		n.discover(false)
+		n.buildQueue(false)
 	}
 
 	// get next item from queue
@@ -73,7 +82,24 @@ func (n *NetAppSD) Next(podName string) (netbox.Filer, error) {
 	return next, nil
 }
 
+// discover queries netbox for filers and cache the filer list
 func (n *NetAppSD) discover(lockq bool) {
+	if lockq {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+	}
+	slog.Info("fetching filers from netbox", "region", n.Region, "serviceType", n.ServiceType)
+	filers, err := n.NetboxClient.GetFilers(n.Region, n.ServiceType)
+	if err != nil {
+		slog.Error("failed to fetch filers from netbox", "error", err)
+	}
+	slog.Info(fmt.Sprintf("fetched %d filers from netbox", len(filers)))
+	n.filers = filers
+}
+
+// buildQueue builds a queue of filers to be harvested, based on the cached
+// filer list and the pods that are already running
+func (n *NetAppSD) buildQueue(lockq bool) {
 	if lockq {
 		n.mu.Lock()
 		defer n.mu.Unlock()
@@ -97,10 +123,9 @@ func (n *NetAppSD) discover(lockq bool) {
 		}
 	}
 
-	// query netbox for filers and add to queue if not already harvested
-	discovered := n.queryNetbox()
+	// build queue of filers that are not running
 	targets := make([]netbox.Filer, 0)
-	for _, filer := range discovered {
+	for _, filer := range n.filers {
 		if !running[filer.Name] {
 			targets = append(targets, filer)
 			slog.Debug(fmt.Sprintf("added filer %s to queue", filer.Name))
@@ -115,17 +140,6 @@ func (n *NetAppSD) discover(lockq bool) {
 	for _, target := range targets {
 		n.queue <- target
 	}
-}
-
-// queryNetbox queries netbox for targets and queries the pods for running
-// tasks and returns the diff
-func (n *NetAppSD) queryNetbox() []netbox.Filer {
-	filers, err := n.NetboxClient.GetFilers(n.Region, n.ServiceType)
-	slog.Debug(fmt.Sprintf("fetched %d filers from netbox", len(filers)))
-	if err != nil {
-		log.Warn().Err(err).Send()
-	}
-	return filers
 }
 
 // getPods is an example to get pods in a k8s namespace filtered by label

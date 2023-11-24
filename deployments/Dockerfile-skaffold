@@ -6,6 +6,8 @@ ENV ARCH=amd64
 ENV GOGC=100
 WORKDIR /app
 
-COPY netappsd netappsd
-COPY netappsd-worker netappsd-worker
+COPY cmd/ cmd/
+COPY internal/ internal/
+COPY _output/${ARCH}/netappsd netappsd
+COPY _output/${ARCH}/netappsd-worker netappsd-worker
 ENTRYPOINT [ "netappsd" ]

@@ -44,16 +44,16 @@ build-container: build-netappsd
 	docker build --platform $(OS)/$(ARCH) -t $(REGISTRY)/netappsd-$(ARCH):$(VERSION) $(TEMP_DIR)
 	docker push $(REGISTRY)/netappsd-$(ARCH):$(VERSION)
 	
-.Phony: build-manifest
-build-manifest:
-	gomplate < deployments/templates/netappsd.yaml > $(OUT_DIR)/kubernetes/netappsd.yaml
 
 # Deploy
 # ------
+$(OUT_DIR)/manifest.yaml: deployments/templates/netappsd.yaml
+	gomplate < deployments/templates/netappsd.yaml > $@
+
 .Phony: deploy-k8s
-deploy-k8s:
-	gomplate < deployments/kubernetes/netappsd.yaml | kubectl apply -f -
+deploy-k8s: $(OUT_DIR)/manifest.yaml build-container 
+	kubectl apply -f $(OUT_DIR)/manifest.yaml
 
 .Phony: delete-k8s
-delete-k8s:
-	kubectl delete -f deployments/kubernetes
+delete-k8s: $(OUT_DIR)/manifest.yaml
+	kubectl delete -f $(OUT_DIR)/manifest.yaml

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/sapcc/go-bits/httpapi"
 	"github.com/sapcc/go-bits/httpext"
@@ -45,15 +44,13 @@ var cmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, _ []string) {
 		log.Info("starting netappsd master", "netbox-url", netboxURL)
+		ctx := httpext.ContextWithSIGINT(context.Background(), 0)
 
 		netappsd := NewNetAppSD()
-		go netappsd.Discover(nil)
+		go netappsd.Discover(ctx.Done())
 
-		handler := httpapi.Compose(netappsd)
 		mux := http.NewServeMux()
-		mux.Handle("/", handler)
-
-		ctx := httpext.ContextWithSIGINT(context.Background(), 10*time.Second)
+		mux.Handle("/", httpapi.Compose(netappsd))
 		must.Succeed(httpext.ListenAndServeContext(ctx, httpListenAddr, mux))
 	},
 }

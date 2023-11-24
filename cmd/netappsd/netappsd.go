@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	"github.com/gorilla/mux"
+	"github.com/sapcc/go-bits/respondwith"
 	"github.com/sapcc/netappsd/internal/netappsd"
 	"github.com/sapcc/netappsd/internal/pkg/netbox"
 )
@@ -51,9 +51,9 @@ func (n *NetAppSD) AddTo(r *mux.Router) {
 			podname := mux.Vars(r)["podname"]
 			filer, err := n.Next(podname)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				respondwith.ErrorText(w, err)
+			} else {
+				respondwith.JSON(w, 200, filer)
 			}
-			json.NewEncoder(w).Encode(filer)
 		})
 }

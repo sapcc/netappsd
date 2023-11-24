@@ -7,7 +7,7 @@ build:
   artifacts:
     - image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64
       docker:
-        dockerfile: deployments/Dockerfile
+        dockerfile: deployments/Dockerfile-skaffold
       hooks:
         before:
           - command: ["make", "build-netappsd"]
