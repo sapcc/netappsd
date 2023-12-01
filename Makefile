@@ -1,22 +1,22 @@
 OS?=linux
 ARCH?=amd64
+
 GOPATH:=$(shell go env GOPATH)
+GOFILES:=$(shell find . -name '*.go' -not -path "./vendor/*")
 OUT_DIR?=./_output
-REGISTRY?=keppel.eu-de-1.cloud.sap/ccloud
 TEMP_DIR:=$(shell mktemp -d)
+
+REGISTRY?=keppel.eu-de-1.cloud.sap/ccloud
+IMAGE_NAME:=$(REGISTRY)/netappsd-$(ARCH)
 VERSION?=latest
 
-IMAGE_NAME:=keppel.eu-de-1.cloud.sap/ccloud/netappsd
 BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 HASH := $(shell git rev-parse HEAD | head -c 7)
 IMAGE_TAG:=$(shell date -u +%Y%m%d%H%M%S)-$(BRANCH)-$(HASH)
 
-GOFILES := $(shell find . -name '*.go')
-# $(wildcard internal/*/*.go) $(wildcard internal/*/*/*.go)
 
-all: build
+all: build-netappsd
 
-# build: bin/netappsd
 
 bin/netappsd: $(GOFILES)
 	go build -o $@ *.go
@@ -41,19 +41,26 @@ build-container: build-netappsd
 	cp $(OUT_DIR)/$(ARCH)/netappsd $(TEMP_DIR)/netappsd
 	cp $(OUT_DIR)/$(ARCH)/netappsd-worker $(TEMP_DIR)/netappsd-worker
 	cd $(TEMP_DIR) && sed -i.bak "s|BASEIMAGE|scratch|g" Dockerfile
-	docker build --platform $(OS)/$(ARCH) -t $(REGISTRY)/netappsd-$(ARCH):$(VERSION) $(TEMP_DIR)
-	docker push $(REGISTRY)/netappsd-$(ARCH):$(VERSION)
-	
+	docker build --platform $(OS)/$(ARCH) -t $(IMAGE_NAME):$(VERSION) $(TEMP_DIR)
+	docker push $(IMAGE_NAME):$(VERSION)
 
 # Deploy
 # ------
-$(OUT_DIR)/manifest.yaml: deployments/templates/netappsd.yaml
+$(OUT_DIR)/manifests.yaml: deployments/templates/netappsd.yaml
 	gomplate < deployments/templates/netappsd.yaml > $@
+	
+$(OUT_DIR)/manifests-debug.yaml: deployments/templates/netappsd.yaml
+	debug=true gomplate < deployments/templates/netappsd.yaml > $@
 
-.Phony: deploy-k8s
-deploy-k8s: $(OUT_DIR)/manifest.yaml build-container 
-	kubectl apply -f $(OUT_DIR)/manifest.yaml
+.Phony: debug
+debug: $(OUT_DIR)/manifests-debug.yaml
+	skaffold debug --profile=debug
+
+# TODO: use skaffold to deploy to k8s
+.Phony: deploy
+deploy-k8s: $(OUT_DIR)/manifests.yaml build-container
+	kubectl apply -f $(OUT_DIR)/manifests.yaml
 
 .Phony: delete-k8s
-delete-k8s: $(OUT_DIR)/manifest.yaml
-	kubectl delete -f $(OUT_DIR)/manifest.yaml
+delete-k8s: $(OUT_DIR)/manifests.yaml
+	kubectl delete -f $(OUT_DIR)/manifests.yaml

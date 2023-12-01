@@ -72,6 +72,24 @@ spec:
           command: ["/app/netappsd"]
           args:
             - --debug
+          {{ if not .Env.debug }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          {{ end }}
           resources:
             requests:
               cpu: 100m
@@ -156,6 +174,16 @@ spec:
             limits:
               cpu: 500m
               memory: 500Mi
+          {{ if not .Env.debug }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          {{ end }}
           env:
             - name: NETAPP_USERNAME
               valueFrom:

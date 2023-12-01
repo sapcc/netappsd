@@ -3,14 +3,25 @@ kind: Config
 metadata:
   name: netappsd
 build:
+  local: {}
   platforms: ["linux/amd64"]
   artifacts:
     - image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64
       docker:
-        dockerfile: deployments/Dockerfile-skaffold
+        dockerfile: deployments/Dockerfile
       hooks:
         before:
           - command: ["make", "build-netappsd"]
 manifests:
   rawYaml:
-    - _output/kubernetes/netappsd.yaml
+    - _output/manifests.yaml
+
+profiles:
+  - name: debug
+    patches:
+      - op: replace
+        path: /build/artifacts/0/docker/dockerfile
+        value: deployments/Dockerfile-skaffold-debug
+      - op: replace
+        path: /manifests/rawYaml/0
+        value: _output/manifests-debug.yaml

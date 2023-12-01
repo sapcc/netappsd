@@ -1,3 +1,4 @@
+# vim: set ft=dockerfile:
 FROM alpine:3.18
 LABEL source_repository="https://github.com/sapcc/netappsd"
 
