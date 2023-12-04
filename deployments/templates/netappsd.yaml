@@ -47,6 +47,7 @@ data:
   netappUsername: {{ .Env.NETAPP_USERNAME | base64.Encode }}
   netappPassword: {{ .Env.NETAPP_PASSWORD | base64.Encode }}
 ---
+{{- if not (conv.ToBool .Env.netappsd_disabled ) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -72,7 +73,7 @@ spec:
           command: ["/app/netappsd"]
           args:
             - --debug
-          {{ if not .Env.debug }}
+          {{- if not (.Env.debug | conv.ToBool) }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -89,7 +90,7 @@ spec:
             timeoutSeconds: 5
             periodSeconds: 10
             failureThreshold: 3
-          {{ end }}
+          {{- end }}
           resources:
             requests:
               cpu: 100m
@@ -112,6 +113,7 @@ spec:
         - name: netappsd
           secret:
             secretName: netappsd
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -136,6 +138,7 @@ metadata:
 data:
   harvest.yaml.tpl: {{ file.Read "./deployments/templates/harvest.yaml.tpl" | toYAML | indent 2 }}
 ---
+{{- if not (conv.ToBool .Env.harvest_disabled) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -174,7 +177,7 @@ spec:
             limits:
               cpu: 500m
               memory: 500Mi
-          {{ if not .Env.debug }}
+          {{- if not ( conv.ToBool .Env.debug) }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -183,7 +186,7 @@ spec:
             timeoutSeconds: 5
             periodSeconds: 10
             failureThreshold: 3
-          {{ end }}
+          {{- end }}
           env:
             - name: NETAPP_USERNAME
               valueFrom:
@@ -214,5 +217,6 @@ spec:
         - name: harvest-yaml-tpl
           configMap:
             name: netappsd
+{{- end }}
 ---
 
