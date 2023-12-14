@@ -2,8 +2,11 @@ package monitor
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
@@ -31,14 +34,16 @@ type Monitor struct {
 	discovered        map[string]interface{}
 	discoveredGauge   prometheus.Gauge
 	probeFailureGauge *prometheus.GaugeVec
-	liveness          int
-	log               *zerolog.Logger
-	mu                sync.Mutex
+
+	liveness    int
+	outfilepath string
+	log         *zerolog.Logger
+	mu          sync.Mutex
 }
 
-func NewMonitorQueue(d Discoverer, metricsPrefix string, log *zerolog.Logger) *Monitor {
+func NewMonitorQueue(d Discoverer, metricsPrefix, outfilepath string, log *zerolog.Logger) *Monitor {
 	q := Monitor{
-		Discoverer: d, liveness: 0, log: log,
+		Discoverer: d, liveness: 0, log: log, outfilepath: outfilepath,
 	}
 	q.queues = make(map[string]Queue, 0)
 	q.InitMetrics(metricsPrefix)
@@ -214,6 +219,20 @@ func (q *Monitor) setObservedObjects(discovered map[string]interface{}) {
 	// deep copy discovered data to Monitor
 	q.discovered = discovered
 	q.discoveredGauge.Set(float64(len(q.discovered)))
+
+	filers := make([]interface{}, 0)
+	for _, v := range q.discovered {
+		filers = append(filers, v)
+	}
+	var filersyaml []byte
+	filersyaml, err := yaml.Marshal(filers)
+	if err != nil {
+		q.log.Warn().Err(err).Msg("failed to marshal filers to yaml")
+	}
+	if err := os.WriteFile(q.outfilepath, filersyaml, 0600); err != nil {
+		q.log.Warn().Err(err).Msg("failed to write filers to file")
+	}
+	q.log.Debug().Msgf("wrote filers to file %s", q.outfilepath)
 }
 
 func (q *Monitor) NextName(r string) (string, bool) {

@@ -18,20 +18,23 @@ var (
 	configpath       string
 	logLevel         string
 	metricsPrefix    string
-	netappUsername   string
-	netappPassword   string
 	netboxHost       string
 	netboxQuery      string
 	netboxToken      string
-	promLabel        string
-	promQuery        string
-	promUrl          string
+	outfilepath      string
 	region           string
-	q                *monitor.Monitor
-	srv              *http.Server
 	discoverInterval time.Duration
 	observeInterval  time.Duration
-	log              zerolog.Logger
+
+	netappUsername string
+	netappPassword string
+	promLabel      string
+	promQuery      string
+	promUrl        string
+
+	q   *monitor.Monitor
+	srv *http.Server
+	log zerolog.Logger
 )
 
 func main() {
@@ -41,7 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
-	q = monitor.NewMonitorQueue(m, metricsPrefix, &log)
+	q = monitor.NewMonitorQueue(m, metricsPrefix, outfilepath, &log)
 
 	go q.DoObserve(ctx, observeInterval, promUrl, promQuery, promLabel)
 	go q.DoDiscover(ctx, discoverInterval, region, netboxQuery)
@@ -83,6 +86,7 @@ func init() {
 	flag.StringVar(&logLevel, "log-level", "info", "log level")
 	flag.DurationVar(&discoverInterval, "discover-interval", 5*time.Minute, "time interval between dicovering filers from netbox")
 	flag.DurationVar(&observeInterval, "update-interval", 1*time.Minute, "time interval between state updates from prometheus")
+	flag.StringVar(&outfilepath, "output-file-path", "filers.yaml", "output file path (also used as key in configmap)")
 	flag.Parse()
 
 	if region == "" {
