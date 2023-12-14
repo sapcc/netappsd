@@ -11,6 +11,7 @@ require (
 	github.com/rs/zerolog v1.29.0
 	github.com/sapcc/go-bits v0.0.0-20230203091932-bc999fbc3108
 	github.com/urfave/negroni v1.0.0
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -45,9 +46,8 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
 	go.mongodb.org/mongo-driver v1.8.3 // indirect
-	golang.org/x/net v0.4.0 // indirect
-	golang.org/x/sys v0.3.0 // indirect
-	golang.org/x/text v0.5.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
