@@ -65,6 +65,9 @@ func NewRestClient(host string, options *ClientOptions) *RestClient {
 	if !strings.HasSuffix(host, "/") {
 		host = host + "/"
 	}
+	if !strings.HasPrefix(host, "http") {
+		host = "https://" + host
+	}
 	baseURL, _ := url.Parse(host)
 	return &RestClient{
 		BaseURL:   baseURL,
@@ -72,6 +75,14 @@ func NewRestClient(host string, options *ClientOptions) *RestClient {
 		client:    httpClient,
 		options:   options,
 	}
+}
+
+func (c *RestClient) Get(uri string, options *ClientOptions) (*http.Response, error) {
+	options = UpdateOptions(options)
+	if options.Debug {
+		fmt.Printf("GET %s\n", uri)
+	}
+	return c.DoRequest(uri)
 }
 
 func (c *RestClient) DoRequest(uri string) (*http.Response, error) {

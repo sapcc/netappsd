@@ -45,9 +45,9 @@ var cmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, _ []string) {
 		log.Info("starting netappsd master", "netbox-url", netboxURL)
 		ctx := httpext.ContextWithSIGINT(context.Background(), 0)
+		netappsd := NewNetAppSD("qa-de-1", "manila", "netapp-exporters", "app=netapp-harvest")
 
-		netappsd := NewNetAppSD()
-		go netappsd.Discover(ctx.Done())
+		go netappsd.Start(ctx)
 
 		mux := http.NewServeMux()
 		mux.Handle("/", httpapi.Compose(netappsd))

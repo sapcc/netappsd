@@ -22,123 +22,139 @@ type NetAppSD struct {
 	Namespace           string
 	Region              string
 	ServiceType         string
-	Ready               bool
-	filers              []netbox.Filer
-	mu                  sync.Mutex
-	newreplicaset       string
-	queue               chan netbox.Filer
+
+	mu            sync.Mutex
+	filers        []netbox.Filer
+	filerQueue    []*netbox.Filer
+	newreplicaset string
 }
 
-// Discover is a loop that periodically queries netbox for filers and builds a
-// queue of filers to be harvested.
-func (n *NetAppSD) Discover(cancel <-chan struct{}) {
-	for ; true; <-time.After(5 * time.Minute) {
+func (n *NetAppSD) IsReady() bool {
+	return len(n.filers) > 0
+}
+
+// Start periodically queries netbox for filers and builds a queue of filers to
+// be harvested.
+func (n *NetAppSD) Start(ctx context.Context) {
+	// discover filers periodically with relatively long interval
+	go func() {
+		for {
+			select {
+			case <-time.After(5 * time.Minute):
+				n.discover(true)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// make queue periodically with relatively short interval
+	for {
 		select {
-		case <-cancel:
+		case <-time.After(30 * time.Second):
+			n.makeQueue(true)
+		case <-ctx.Done():
 			return
-		case <-time.After(5 * time.Minute):
-			n.discover(true)
-		case <-time.After(5 * time.Second):
-			n.buildQueue(true)
 		}
 	}
 }
 
-// NextItem returns the next item from the queue
-func (n *NetAppSD) Next(podName string) (netbox.Filer, error) {
+// NextFiler returns the next working item from the queue. Internal errors
+// while making the queue are not propagated. Only a generic empty queue
+// error is returned.
+func (n *NetAppSD) NextFiler(podName string) (*netbox.Filer, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if !n.Ready {
-		go func() {
-			n.discover(true)
-			n.Ready = true
-		}()
-		err := fmt.Errorf("netappsd is not ready yet")
-		return netbox.Filer{}, err
-	}
 
-	// rebuild target queue if request is from new replicaset
+	// remake target queue if request is from new replicaset
 	r := strings.Split(podName, "-")
 	replicaset := strings.Join(r[:len(r)-1], "-")
 	if replicaset != n.newreplicaset {
-		slog.Info("new replicaset detected, discovering new targets", "replicaSet", replicaset)
+		slog.Info("NextFiler: make Filer queue for replicaset", "replicaSet", replicaset)
 		n.newreplicaset = replicaset
-		n.buildQueue(false)
+		n.makeQueue(false)
 	}
 
-	// get next item from queue
-	if len(n.queue) == 0 {
-		err := fmt.Errorf("discovery queue is empty")
-		return netbox.Filer{}, err
+	if len(n.filerQueue) == 0 {
+		err := fmt.Errorf("NextFiler: filer queue is empty")
+		return nil, err
 	}
-	next := <-n.queue
 
-	// set label on pod before returning
-	err := n.setLabel(podName, "filer", next.Name)
-	if err != nil {
-		n.queue <- next
-		return netbox.Filer{}, err
+	// get first filer from n.filerQueue and remove it from the queue
+	next := n.filerQueue[0]
+	n.filerQueue = n.filerQueue[1:]
+	if len(n.filerQueue) == 0 {
+		slog.Info("NextFiler: all filers are harvested")
+	} else {
+		slog.Info("NextFiler: filer is harvested", "filer", next.Name)
+		slog.Info(fmt.Sprintf("NextFiler: %d filers left in queue", len(n.filerQueue)))
 	}
 	return next, nil
 }
 
-// discover queries netbox for filers and cache the filer list
+// discover queries netbox for filers and cache the filer list. It also
+// rebuilds the queue of filers to be harvested.
 func (n *NetAppSD) discover(lockq bool) {
 	if lockq {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 	}
-	slog.Info("fetching filers from netbox", "region", n.Region, "serviceType", n.ServiceType)
 	filers, err := n.NetboxClient.GetFilers(n.Region, n.ServiceType)
 	if err != nil {
 		slog.Error("failed to fetch filers from netbox", "error", err)
+		return
 	}
-	slog.Info(fmt.Sprintf("fetched %d filers from netbox", len(filers)))
 	n.filers = filers
+	n.makeQueue(false)
+	slog.Info(fmt.Sprintf("fetched %d filers from netbox", len(filers)))
 }
 
-// buildQueue builds a queue of filers to be harvested, based on the cached
-// filer list and the pods that are already running
-func (n *NetAppSD) buildQueue(lockq bool) {
+// makeQueue builds a queue of filers to be harvested. It reads the label of
+// the pods to determine which filers are already harvested and which filers
+// are not harvested yet.
+func (n *NetAppSD) makeQueue(lockq bool) {
 	if lockq {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 	}
+	if len(n.filers) == 0 {
+		slog.Info("makeQueue: discover filers since no filer is cached")
+		n.discover(false)
+	}
+	if n.newreplicaset == "" {
+		slog.Warn("makeQueue canceld: replicaset not set")
+		return
+	}
 
-	// get labels from pods and check which filers are already harvested
-	// label example: app=netapp-harvest, filer=netapp-qa-de-1-01
-	running := make(map[string]bool)
+	// Get pods and check which filers are already harvested by checking the
+	// label. Only pods belongs to the new replicaset are considered.
+	// Label example: app=netapp-harvest, filer=netapp-qa-de-1-01
 	pods, err := n.getPods(n.AppLabel)
 	if err != nil {
-		msg := fmt.Sprintf("get pods with label %s", n.AppLabel)
-		slog.Error(msg, "error", err)
+		slog.Error("makeQueue failed", "error", err)
+		return
 	}
+
+	// Build queue of filers that are not running
+	n.filerQueue = make([]*netbox.Filer, 0, len(n.filers))
+	running := make(map[string]bool)
 	for _, pod := range pods.Items {
-		// check if pod belongs to n.newreplicaset
 		if strings.Contains(pod.Name, n.newreplicaset) {
-			lvalue, ok := pod.Labels["filer"]
-			if ok {
-				running[lvalue] = true
+			if filer, found := pod.Labels["filer"]; found {
+				running[filer] = true
 			}
 		}
 	}
 
-	// build queue of filers that are not running
-	targets := make([]netbox.Filer, 0)
-	for _, filer := range n.filers {
-		if !running[filer.Name] {
-			targets = append(targets, filer)
-			slog.Debug(fmt.Sprintf("added filer %s to queue", filer.Name))
+	for i, filer := range n.filers {
+		if ok := running[filer.Name]; !ok {
+			n.filerQueue = append(n.filerQueue, &n.filers[i])
+			slog.Debug("makeQueue: append filer to queue", "filer", filer.Name, "replicaSet", n.newreplicaset)
 		}
 	}
 
-	// close old queue before setting new one
-	if n.queue != nil {
-		close(n.queue)
-	}
-	n.queue = make(chan netbox.Filer, len(targets))
-	for _, target := range targets {
-		n.queue <- target
+	if l := len(n.filerQueue); l > 0 {
+		slog.Info("makeQueue done", "queueLength", l, "replicaSet", n.newreplicaset)
 	}
 }
 
@@ -147,19 +163,4 @@ func (n *NetAppSD) getPods(label string) (*corev1.PodList, error) {
 	return n.KubernetesClientset.CoreV1().Pods(n.Namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: label,
 	})
-
-}
-
-// setLabel sets the filer label on the pod
-func (n *NetAppSD) setLabel(podName, key, value string) error {
-	pod, err := n.KubernetesClientset.CoreV1().Pods(n.Namespace).Get(context.TODO(), podName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	pod.Labels[key] = value
-	_, err = n.KubernetesClientset.CoreV1().Pods(n.Namespace).Update(context.Background(), pod, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	return nil
 }

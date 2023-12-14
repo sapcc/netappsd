@@ -47,7 +47,7 @@ data:
   netappUsername: {{ .Env.NETAPP_USERNAME | base64.Encode }}
   netappPassword: {{ .Env.NETAPP_PASSWORD | base64.Encode }}
 ---
-{{- if not (conv.ToBool .Env.netappsd_disabled ) }}
+{{- if (conv.ToBool .Env.enable_master ) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -138,7 +138,7 @@ metadata:
 data:
   harvest.yaml.tpl: {{ file.Read "./deployments/templates/harvest.yaml.tpl" | toYAML | indent 2 }}
 ---
-{{- if not (conv.ToBool .Env.harvest_disabled) }}
+{{- if (conv.ToBool .Env.enable_worker) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -161,15 +161,15 @@ spec:
         - name: netapp-harvest
           image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
           imagePullPolicy: Always
-          command: ["/app/netappsd-worker"]
+          command: ["netappsd-worker"]
           args:
-            - --debug
             - --master-url
             - http://netappsd.netapp-exporters.svc:8080
             - --template-file
-            - /harvest.yaml.tpl
+            - /app/harvest.yaml.tpl
             - --output-file
-            - /harvest.yaml
+            - /app/harvest.yaml
+            - --debug
           resources:
             requests:
               cpu: 100m
@@ -208,7 +208,7 @@ spec:
                   fieldPath: metadata.name
           volumeMounts:
             - name: harvest-yaml-tpl
-              mountPath: /harvest.yaml.tpl
+              mountPath: /app/harvest.yaml.tpl
               subPath: harvest.yaml.tpl
       volumes:
         - name: netappsd

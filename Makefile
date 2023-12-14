@@ -1,9 +1,13 @@
+ifeq ($(KUBECTL_CONTEXT),)
+$(error KUBECTL_CONTEXT is not set)
+endif
+
 OS?=linux
 ARCH?=amd64
 
 GOPATH:=$(shell go env GOPATH)
 GOFILES:=$(shell find . -name '*.go' -not -path "./vendor/*")
-OUT_DIR?=./_output
+OUT_DIR?=_output
 TEMP_DIR:=$(shell mktemp -d)
 
 REGISTRY?=keppel.eu-de-1.cloud.sap/ccloud
@@ -44,23 +48,41 @@ build-container: build-netappsd
 	docker build --platform $(OS)/$(ARCH) -t $(IMAGE_NAME):$(VERSION) $(TEMP_DIR)
 	docker push $(IMAGE_NAME):$(VERSION)
 
+# Debug
+# ------
+export debug=0
+export enable_master=1
+export enable_worker=1
+
+define generate_manifests
+	gomplate < deployments/templates/netappsd.yaml > $(1)
+	gomplate < deployments/templates/hpa.yaml >> $(1)
+endef
+
+.Phony: debug debug-master debug-worker
+
+debug: export debug=1
+debug: 
+	$(call generate_manifests,$(OUT_DIR)/manifests-debug.yaml)
+	skaffold debug --profile=debug --namespace=netapp-exporters --kube-context $(KUBECTL_CONTEXT)
+
+debug-master: export enable_worker=0
+debug-master: debug
+
+debug-worker: export enable_master=0
+debug-worker: debug
+
 # Deploy
 # ------
-$(OUT_DIR)/manifests.yaml: deployments/templates/netappsd.yaml
-	gomplate < deployments/templates/netappsd.yaml > $@
-	
-$(OUT_DIR)/manifests-debug.yaml: deployments/templates/netappsd.yaml
-	debug=true gomplate < deployments/templates/netappsd.yaml > $@
-
-.Phony: debug
-debug: $(OUT_DIR)/manifests-debug.yaml
-	skaffold debug --profile=debug
-
 # TODO: use skaffold to deploy to k8s
-.Phony: deploy
-deploy-k8s: $(OUT_DIR)/manifests.yaml build-container
+
+.Phony: manifests.yaml deploy delete-k8s
+
+manifests.yaml:
+	$(call generate_manifests,$(OUT_DIR)/$@)
+
+deploy: $(OUT_DIR)/manifests.yaml build-container
 	kubectl apply -f $(OUT_DIR)/manifests.yaml
 
-.Phony: delete-k8s
 delete-k8s: $(OUT_DIR)/manifests.yaml
 	kubectl delete -f $(OUT_DIR)/manifests.yaml

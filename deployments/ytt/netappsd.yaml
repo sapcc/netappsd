@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: netappsd
+subjects:
+  - kind: ServiceAccount
+    name: netappsd
+---
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+data:
+  netboxToken: { { .Env.NETBOX_TOKEN | base64.Encode } }
+  netboxURL: { { .Env.NETBOX_URL | base64.Encode } }
+  netappUsername: { { .Env.NETAPP_USERNAME | base64.Encode } }
+  netappPassword: { { .Env.NETAPP_PASSWORD | base64.Encode } }
+---
+

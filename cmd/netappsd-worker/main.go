@@ -1,25 +1,35 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
-	"text/template"
+	"sync"
 	"time"
 
-	"github.com/sapcc/netappsd/internal/pkg/netbox"
+	"github.com/sapcc/go-bits/httpapi"
+	"github.com/sapcc/go-bits/httpext"
+	"github.com/sapcc/go-bits/must"
 	"github.com/spf13/cobra"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 var (
 	debug            bool
+	httpListenAddr   string
 	masterUrl        string
 	outputFilePath   string
-	podName          string
 	templateFilePath string
+
+	podName        string
+	podNamespace   string
+	netappUsername string
+	netappPassword string
 
 	log    *slog.Logger
 	logLvl *slog.LevelVar = new(slog.LevelVar)
@@ -28,109 +38,107 @@ var (
 var cmd = &cobra.Command{
 	Use:  "worker",
 	Long: `A simple network application service daemon worker`,
-	PreRun: func(cmd *cobra.Command, _ []string) {
+	PreRunE: func(cmd *cobra.Command, _ []string) error {
 		if debug {
 			logLvl.Set(slog.LevelDebug)
 			log.Debug("debug logging enabled")
 		}
-	},
-	Run: func(_ *cobra.Command, _ []string) {
-		log.Info("Starting netappsd worker", "master-url", masterUrl, "template-file", templateFilePath, "output-file", outputFilePath)
-
+		netappUsername = os.Getenv("NETAPP_USERNAME")
+		if netappUsername == "" {
+			return fmt.Errorf("failed to get NETAPP_USERNAME environment variable")
+		}
+		netappPassword = os.Getenv("NETAPP_PASSWORD")
+		if netappPassword == "" {
+			return fmt.Errorf("failed to get NETAPP_PASSWORD environment variable")
+		}
 		podName = os.Getenv("POD_NAME")
 		if podName == "" {
-			log.Error("Failed to get POD_NAME environment variable")
-			os.Exit(1)
+			return fmt.Errorf("failed to get POD_NAME environment variable")
 		}
-		tpl, err := template.ParseGlob(templateFilePath)
-		if err != nil {
-			log.Error("Failed to parse template", "error", err)
-			os.Exit(1)
+		podNamespace = os.Getenv("POD_NAMESPACE")
+		if podNamespace == "" {
+			return fmt.Errorf("failed to get POD_NAMESPACE environment variable")
 		}
-		err = fetchNextFiler(tpl)
-		if err != nil {
-			log.Error("Failed to fetch next filer", "error", err)
-			os.Exit(1)
-		}
-
-		// TODO: add graceful shutdown
-		// TODO: implement healthz endpoint
-		for {
-			<-time.After(60 * time.Second)
-			log.Info("Worker is running")
-		}
+		return nil
 	},
+	Run:          run,
+	SilenceUsage: true,
 }
 
 func main() {
+	log = newLogger()
+
+	cmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
+	cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://localhost:8080", "The url of the netappsd-master")
+	cmd.Flags().StringVarP(&httpListenAddr, "listen-addr", "l", ":8082", "The address to listen on")
+	cmd.Flags().StringVarP(&outputFilePath, "output-file", "o", "harvest.yaml", "The path to the output file")
+	cmd.Flags().StringVarP(&templateFilePath, "template-file", "t", "harvest.yaml.tpl", "The path to the template file")
+
 	if err := cmd.Execute(); err != nil {
-		log.Error("Failed to execute command", "error", err)
+		log.Error(err.Error())
 		os.Exit(1)
 	}
 }
 
-func init() {
-	loghandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{AddSource: false, Level: logLvl})
-	log = slog.New(loghandler)
+func run(cmd *cobra.Command, args []string) {
+	log.Info("Starting netappsd worker", "template-file", templateFilePath, "output-file", outputFilePath)
 
-	cmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
-	cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://localhost:8080", "The url of the netappsd-master")
-	cmd.Flags().StringVarP(&outputFilePath, "output-file", "o", "_output/harvest.yaml", "The path to the output file")
-	cmd.Flags().StringVarP(&templateFilePath, "template-file", "t", "deployments/templates/harvest.yaml.tpl", "The path to the template file")
-	// cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://netappsd-master.netapp-exporters.svc:8080", "The url of the netappsd-master")
-	// cmd.Flags().DurationVarP(&sleepTime, "sleep-time", "s", 10*time.Second, "The time to sleep between requests")
-}
+	ctx := httpext.ContextWithSIGINT(context.Background(), 0)
+	f := new(FilerClient)
+	wg := new(sync.WaitGroup)
+	defer wg.Wait()
 
-func fetchNextFiler(tpl *template.Template) error {
-	var filer netbox.Filer
-
-	for ; true; <-time.After(5 * time.Second) {
-		// fetch a filer to work on from master
-		// if request fails, log error and retry after sleep
-		resp, err := http.Get(masterUrl + fmt.Sprintf("/%s/next/filer.json", podName))
-		if err != nil {
-			log.Warn("Failed to get next filer", "reason", err)
-			continue
-		}
-		if resp.StatusCode != 200 {
-			reason, _ := parseRespBody(resp)
-			log.Warn("Failed to get next filer", "reason", reason)
-			continue
-		}
-
-		// decode response body into filer struct and render template
-		// break out of loop if successful
-		err = json.NewDecoder(resp.Body).Decode(&filer)
-		if err != nil {
-			return err
-		} else {
-			log.Debug("Got next filer", "filer", filer.Name)
-		}
-		err = renderTemplateTo(outputFilePath, tpl, filer)
-		if err != nil {
-			return err
-		}
-
-		break
+	// request filer from the master with timeout
+	url := masterUrl + "/next/filer?pod=" + podName
+	timeout := 5 * time.Minute
+	interval := 5 * time.Second
+	if err := f.RequestFiler(ctx, url, interval, timeout); err != nil {
+		log.Error("failed to request filer", "error", err.Error())
+		os.Exit(2)
+	}
+	if err := f.Render(templateFilePath, outputFilePath); err != nil {
+		log.Error("failed to render filer template", "error", err.Error())
+		os.Exit(2)
+	}
+	if err := setLabel(ctx, podNamespace, podName, "filer", f.Filer.Name); err != nil {
+		log.Error("failed to set filer label", "error", err.Error())
+		os.Exit(2)
 	}
 
-	return nil
+	go f.ProbeFiler(ctx, wg, 5*time.Minute /* probeInterval */)
+
+	// start the health check server
+	mux := http.NewServeMux()
+	mux.Handle("/", httpapi.Compose(f))
+	must.Succeed(httpext.ListenAndServeContext(ctx, httpListenAddr, mux))
 }
 
-func parseRespBody(resp *http.Response) (string, error) {
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
+func newLogger() *slog.Logger {
+	logOptions := new(slog.HandlerOptions)
+	logOptions.AddSource = false
+	logOptions.Level = logLvl
+	return slog.New(slog.NewTextHandler(os.Stderr, logOptions))
 }
 
-func renderTemplateTo(outputFilePath string, tpl *template.Template, filer netbox.Filer) error {
-	f, err := os.Create(outputFilePath)
+// setLabel sets the filer label on the pod
+func setLabel(ctx context.Context, namespace, podName, key, value string) error {
+	log.Info("setting label on pod", "pod", podName, "key", key, "value", value)
+	config, err := rest.InClusterConfig()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return tpl.Execute(f, filer)
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+	pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	pod.Labels[key] = value
+	_, err = clientset.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
 }
