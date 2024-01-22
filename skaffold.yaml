@@ -8,20 +8,21 @@ build:
   artifacts:
     - image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64
       docker:
-        dockerfile: deployments/Dockerfile
-      hooks:
-        before:
-          - command: ["make", "build-netappsd"]
+        dockerfile: deployments/Dockerfile-skaffold
+
 manifests:
   rawYaml:
-    - _output/manifests.yaml
+    - _output/netappsd.yaml
 
 profiles:
-  - name: debug
+  - name: master
     patches:
-      - op: replace
-        path: /build/artifacts/0/docker/dockerfile
-        value: deployments/Dockerfile-skaffold-debug
-      - op: replace
-        path: /manifests/rawYaml/0
-        value: _output/manifests-debug.yaml
+      - op: add
+        path: /manifests/rawYaml/-
+        value: _output/master.yaml
+
+  - name: worker
+    patches:
+      - op: add
+        path: /manifests/rawYaml/-
+        value: _output/worker.yaml
