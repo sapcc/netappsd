@@ -1,4 +1,4 @@
-package main
+package worker
 
 import (
 	"context"
@@ -36,7 +36,6 @@ func (f *FilerClient) RequestFiler(ctx context.Context, url string, requestInter
 	for {
 		select {
 		case <-t.After(requestInterval):
-			log.Debug("requesting filer")
 			filer, err := f.fetch(url)
 			if err != nil {
 				log.Warn("failed to fetch filer", "error", err.Error())

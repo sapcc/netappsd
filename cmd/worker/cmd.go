@@ -1,4 +1,4 @@
-package main
+package worker
 
 import (
 	"context"
@@ -9,10 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fatih/structs"
 	"github.com/sapcc/go-bits/httpapi"
 	"github.com/sapcc/go-bits/httpext"
 	"github.com/sapcc/go-bits/must"
+	"github.com/sapcc/netappsd/internal/pkg/utils"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -20,7 +23,6 @@ import (
 )
 
 var (
-	debug            bool
 	httpListenAddr   string
 	masterUrl        string
 	outputFilePath   string
@@ -35,49 +37,74 @@ var (
 	logLvl *slog.LevelVar = new(slog.LevelVar)
 )
 
-var cmd = &cobra.Command{
-	Use:  "worker",
-	Long: `A simple network application service daemon worker`,
+type Config struct {
+	NetappUsername string `env:"NETAPP_USERNAME"`
+	NetappPassword string `env:"NETAPP_PASSWORD"`
+	PodName        string `env:"POD_NAME"`
+	PodNamespace   string `env:"POD_NAMESPACE"`
+	ListenAddr     string `pflag:"listen-addr"`
+}
+
+var config = &Config{}
+
+var Cmd = &cobra.Command{
+	Use:   "worker",
+	Short: "Netappsd worker: initialize filer exporter",
 	PreRunE: func(cmd *cobra.Command, _ []string) error {
-		if debug {
+		if viper.GetBool("debug") {
 			logLvl.Set(slog.LevelDebug)
-			log.Debug("debug logging enabled")
 		}
-		netappUsername = os.Getenv("NETAPP_USERNAME")
-		if netappUsername == "" {
-			return fmt.Errorf("failed to get NETAPP_USERNAME environment variable")
+		log.Debug("log level is set", "logLvl", logLvl)
+
+		if err := readConfig(config); err != nil {
+			return err
 		}
-		netappPassword = os.Getenv("NETAPP_PASSWORD")
-		if netappPassword == "" {
-			return fmt.Errorf("failed to get NETAPP_PASSWORD environment variable")
-		}
-		podName = os.Getenv("POD_NAME")
-		if podName == "" {
-			return fmt.Errorf("failed to get POD_NAME environment variable")
-		}
-		podNamespace = os.Getenv("POD_NAMESPACE")
-		if podNamespace == "" {
-			return fmt.Errorf("failed to get POD_NAMESPACE environment variable")
-		}
+		log.Debug("config", "config", config)
 		return nil
 	},
 	Run:          run,
 	SilenceUsage: true,
 }
 
-func main() {
-	log = newLogger()
+func init() {
+	log = utils.NewLogger(logLvl)
 
-	cmd.Flags().BoolVarP(&debug, "debug", "d", false, "Enable debug logging")
-	cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://localhost:8080", "The url of the netappsd-master")
-	cmd.Flags().StringVarP(&httpListenAddr, "listen-addr", "l", ":8082", "The address to listen on")
-	cmd.Flags().StringVarP(&outputFilePath, "output-file", "o", "harvest.yaml", "The path to the output file")
-	cmd.Flags().StringVarP(&templateFilePath, "template-file", "t", "harvest.yaml.tpl", "The path to the template file")
+	Cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://localhost:8080", "The url of the netappsd-master")
+	Cmd.Flags().StringVarP(&httpListenAddr, "listen-addr", "l", ":8082", "The address to listen on")
+	Cmd.Flags().StringVarP(&outputFilePath, "output-file", "o", "harvest.yaml", "The path to the output file")
+	Cmd.Flags().StringVarP(&templateFilePath, "template-file", "t", "harvest.yaml.tpl", "The path to the template file")
 
-	if err := cmd.Execute(); err != nil {
-		log.Error(err.Error())
-		os.Exit(1)
+	bindFlagAndEnv(config)
+}
+
+func bindFlagAndEnv(cfg interface{}) error {
+	for _, field := range structs.Fields(cfg) {
+		if envconfig := field.Tag("env"); envconfig != "" {
+			if err := viper.BindEnv(field.Name(), envconfig); err != nil {
+				return err
+			}
+		}
+		if pflag := field.Tag("pflag"); pflag != "" {
+			if err := viper.BindPFlag(field.Name(), Cmd.Flags().Lookup(pflag)); err != nil {
+				return err
+			}
+		}
 	}
+	return nil
+}
+
+func readConfig(cfg interface{}) error {
+	if err := viper.Unmarshal(cfg); err != nil {
+		return err
+	}
+	for _, field := range structs.Fields(cfg) {
+		if envconfig := field.Tag("env"); envconfig != "" {
+			if field.Value().(string) == "" {
+				return fmt.Errorf("failed to get %s environment variable", envconfig)
+			}
+		}
+	}
+	return nil
 }
 
 func run(cmd *cobra.Command, args []string) {
@@ -92,6 +119,7 @@ func run(cmd *cobra.Command, args []string) {
 	url := masterUrl + "/next/filer?pod=" + podName
 	timeout := 5 * time.Minute
 	interval := 5 * time.Second
+	log.Info("requesting filer from master", "url", url, "timeout", timeout, "interval", interval)
 	if err := f.RequestFiler(ctx, url, interval, timeout); err != nil {
 		log.Error("failed to request filer", "error", err.Error())
 		os.Exit(2)
@@ -111,13 +139,6 @@ func run(cmd *cobra.Command, args []string) {
 	mux := http.NewServeMux()
 	mux.Handle("/", httpapi.Compose(f))
 	must.Succeed(httpext.ListenAndServeContext(ctx, httpListenAddr, mux))
-}
-
-func newLogger() *slog.Logger {
-	logOptions := new(slog.HandlerOptions)
-	logOptions.AddSource = false
-	logOptions.Level = logLvl
-	return slog.New(slog.NewTextHandler(os.Stderr, logOptions))
 }
 
 // setLabel sets the filer label on the pod

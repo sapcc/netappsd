@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netappsd-master
+  namespace: netapp-exporters
+  labels:
+    app: netappsd-master
+spec:
+  selector:
+    matchLabels:
+      app: netappsd-master
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: netappsd-master
+    spec:
+      serviceAccountName: netappsd
+      containers:
+        - name: netappsd-master
+          image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
+          imagePullPolicy: Always
+          command: ["/app/netappsd"]
+          args:
+            - master
+            - --debug
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          env:
+            - name: NETBOX_URL
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netboxURL
+            - name: NETBOX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netboxToken
+      volumes:
+        - name: netappsd
+          secret:
+            secretName: netappsd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netappsd-master
+  namespace: netapp-exporters
+  labels:
+    app: netappsd-master
+spec:
+  ports:
+    - name: master
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: netappsd-master
+---
+

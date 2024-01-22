@@ -1,3 +1,8 @@
+# apiVersion: v1
+# kind: Namespace
+# metadata:
+#   name: netapp-exporters
+# ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -37,9 +42,8 @@ metadata:
   name: netappsd
   namespace: netapp-exporters
 data:
-  netboxToken: { { .Env.NETBOX_TOKEN | base64.Encode } }
-  netboxURL: { { .Env.NETBOX_URL | base64.Encode } }
-  netappUsername: { { .Env.NETAPP_USERNAME | base64.Encode } }
-  netappPassword: { { .Env.NETAPP_PASSWORD | base64.Encode } }
+  netboxToken: {{ .Env.NETBOX_TOKEN | base64.Encode }}
+  netboxURL: {{ .Env.NETBOX_URL | base64.Encode }}
+  netappUsername: {{ .Env.NETAPP_USERNAME | base64.Encode }}
+  netappPassword: {{ .Env.NETAPP_PASSWORD | base64.Encode }}
 ---
-

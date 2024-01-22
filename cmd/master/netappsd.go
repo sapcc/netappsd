@@ -1,4 +1,4 @@
-package main
+package master
 
 import (
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/sapcc/go-bits/respondwith"
 	"github.com/sapcc/netappsd/internal/netappsd"
 	"github.com/sapcc/netappsd/internal/pkg/netbox"
+	"github.com/spf13/viper"
 )
 
 type NetAppSD struct {
@@ -18,6 +19,9 @@ type NetAppSD struct {
 }
 
 func NewNetAppSD(region, service, namespace, appLabel string) *NetAppSD {
+	netboxURL := viper.GetString("netbox-url")
+	netboxToken := viper.GetString("netbox-token")
+
 	netboxClient, err := netbox.NewClient(netboxURL, netboxToken)
 	if err != nil {
 		panic(err.Error())

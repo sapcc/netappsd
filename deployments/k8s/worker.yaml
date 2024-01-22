@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netappsd-worker
+  namespace: netapp-exporters
+  labels:
+    app: netappsd-worker
+spec:
+  selector:
+    matchLabels:
+      app: netappsd-worker
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: netappsd-worker
+    spec:
+      serviceAccountName: netappsd
+      containers:
+        - name: netappsd-worker
+          image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
+          imagePullPolicy: Always
+          command: ["/app/netappsd"]
+          args:
+            - worker
+            - --master-url
+            - http://netappsd.netapp-exporters.svc:8080
+            - --template-file
+            - /app/harvest.yaml.tpl
+            - --output-file
+            - /app/harvest.yaml
+            - --debug
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          env:
+            - name: NETAPP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netappUsername
+            - name: NETAPP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netappPassword
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: harvest-yaml-tpl
+              mountPath: /app/harvest.yaml.tpl
+              subPath: harvest.yaml.tpl
+      volumes:
+        - name: netappsd
+          secret:
+            secretName: netappsd
+        - name: harvest-yaml-tpl
+          configMap:
+            name: netappsd
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netappsd
+  namespace: netapp-exporters
+data:
+  harvest.yaml.tpl:
+    {
+      {
+        file.Read "./deployments/templates/harvest.yaml.tpl" | toYAML | indent 2,
+      },
+    }
+---
+

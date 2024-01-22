@@ -12,5 +12,4 @@ WORKDIR /app
 COPY cmd/ cmd/
 COPY internal/ internal/
 COPY _output/${ARCH}/netappsd netappsd
-COPY _output/${ARCH}/netappsd-worker netappsd-worker
 ENTRYPOINT [ "netappsd" ]
