@@ -66,7 +66,9 @@ debug: build manifests
 
 .PHONY: clear
 clear:
-	skaffold delete --profile=$(PROFILE) --namespace=netapp-exporters --kube-context $(KUBECTL_CONTEXT)
+	kubectl delete -f $(OUT_DIR)/netappsd.yaml --ignore-not-found
+	kubectl delete -f $(OUT_DIR)/master.yaml --ignore-not-found
+	kubectl delete -f $(OUT_DIR)/worker.yaml --ignore-not-found
 
 # export debug=0
 # export enable_master=1
