@@ -32,11 +32,11 @@ spec:
               cpu: 500m
               memory: 500Mi
           env:
-            - name: NETBOX_URL
+            - name: NETBOX_HOST
               valueFrom:
                 secretKeyRef:
                   name: netappsd
-                  key: netboxURL
+                  key: netboxHost
             - name: NETBOX_TOKEN
               valueFrom:
                 secretKeyRef:
