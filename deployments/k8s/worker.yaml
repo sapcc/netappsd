@@ -24,7 +24,7 @@ spec:
           args:
             - worker
             - --master-url
-            - http://netappsd.netapp-exporters.svc:8080
+            - http://netappsd-master.netapp-exporters.svc:8080
             - --template-file
             - /app/harvest.yaml.tpl
             - --output-file
@@ -37,6 +37,7 @@ spec:
             limits:
               cpu: 500m
               memory: 500Mi
+          {{- if (.Env.production | conv.ToBool) }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -45,6 +46,7 @@ spec:
             timeoutSeconds: 5
             periodSeconds: 10
             failureThreshold: 3
+          {{- end }}
           env:
             - name: NETAPP_USERNAME
               valueFrom:
@@ -83,10 +85,6 @@ metadata:
   namespace: netapp-exporters
 data:
   harvest.yaml.tpl:
-    {
-      {
-        file.Read "./deployments/templates/harvest.yaml.tpl" | toYAML | indent 2,
-      },
-    }
+    {{ file.Read "./deployments/k8s/harvest.yaml.tpl" | toYAML | indent 2 }}
 ---
 
