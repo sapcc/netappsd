@@ -9,7 +9,7 @@
 _output/
 debug
 *.out
-# *.yaml
+filers.yaml
 # *.yaml.tpl
 
 
