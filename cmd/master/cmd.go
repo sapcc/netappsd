@@ -9,6 +9,7 @@ import (
 	"github.com/sapcc/go-bits/httpapi"
 	"github.com/sapcc/go-bits/httpext"
 	"github.com/sapcc/go-bits/must"
+	"github.com/sapcc/netappsd/internal/netappsd"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -18,17 +19,25 @@ var Cmd = &cobra.Command{
 	Short: "Netappsd master: discover filers from netbox",
 	Run: func(cmd *cobra.Command, _ []string) {
 		ctx := httpext.ContextWithSIGINT(context.Background(), 0)
-		netappsd := NewNetAppSD("qa-de-1", "manila", "netapp-exporters")
+
+		netappsdMaster := new(NetappsdMaster)
+		netappsdMaster.NetAppSD = &netappsd.NetAppSD{
+			NetboxHost:  viper.GetString("netbox_host"),
+			NetboxToken: viper.GetString("netbox_token"),
+			Namespace:   "netapp-exporters",
+			Region:      "qa-de-1",
+			ServiceType: "manila",
+		}
 
 		slog.Info("starting netappsd master")
 
-		if err := netappsd.Start(ctx); err != nil {
+		if err := netappsdMaster.Start(ctx); err != nil {
 			slog.Error(err.Error())
 			os.Exit(1)
 		}
 
 		mux := http.NewServeMux()
-		mux.Handle("/", httpapi.Compose(netappsd))
+		mux.Handle("/", httpapi.Compose(netappsdMaster))
 		must.Succeed(httpext.ListenAndServeContext(ctx, viper.GetString("listen_addr"), mux))
 	},
 }

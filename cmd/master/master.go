@@ -4,54 +4,20 @@ import (
 	"net/http"
 	"strings"
 
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-
 	"github.com/gorilla/mux"
 	"github.com/sapcc/go-bits/respondwith"
 	"github.com/sapcc/netappsd/internal/netappsd"
-	"github.com/sapcc/netappsd/internal/pkg/netbox"
-	"github.com/spf13/viper"
 )
 
-type NetAppSD struct {
+type NetappsdMaster struct {
 	*netappsd.NetAppSD
-}
-
-func NewNetAppSD(region, service, namespace, appLabel string) *NetAppSD {
-	netboxURL := viper.GetString("netbox-url")
-	netboxToken := viper.GetString("netbox-token")
-
-	netboxClient, err := netbox.NewClient(netboxURL, netboxToken)
-	if err != nil {
-		panic(err.Error())
-	}
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	return &NetAppSD{
-		&netappsd.NetAppSD{
-			NetboxClient:        &netboxClient,
-			KubernetesClientset: clientset,
-			Region:              region,
-			ServiceType:         service,
-			Namespace:           namespace,
-			AppLabel:            appLabel,
-		},
-	}
 }
 
 // AddTo implements the go-bits/httpapi.API interface. It registers the handler
 // for the /next/filer.json endpoint, which returns the next filer to be
-// harvested. It also registers the /healthz endpoint, which is used by the
+// worked on. It also registers the /healthz endpoint, which is used by the
 // Kubernetes readiness/liveness probe.
-func (n *NetAppSD) AddTo(r *mux.Router) {
+func (n *NetappsdMaster) AddTo(r *mux.Router) {
 	r.Methods("GET").
 		Path("/next/filer").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +32,8 @@ func (n *NetAppSD) AddTo(r *mux.Router) {
 				w.Write([]byte("invalid pod name"))
 				return
 			}
-			filer, err := n.NextFiler(podname)
+			ctx := r.Context()
+			filer, err := n.NextFiler(ctx, podname)
 			if err != nil {
 				respondwith.ErrorText(w, err)
 				return
@@ -86,6 +53,6 @@ func (n *NetAppSD) AddTo(r *mux.Router) {
 		})
 }
 
-func (n *NetAppSD) IsValidPodName(podname string) bool {
+func (n *NetappsdMaster) IsValidPodName(podname string) bool {
 	return strings.Contains(podname, "-")
 }

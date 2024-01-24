@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"os"
 	"sync"
@@ -11,12 +12,11 @@ import (
 	"github.com/sapcc/go-bits/httpapi"
 	"github.com/sapcc/go-bits/httpext"
 	"github.com/sapcc/go-bits/must"
+	"github.com/sapcc/netappsd/internal/pkg/utils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 var (
@@ -41,17 +41,26 @@ func init() {
 }
 
 func run(cmd *cobra.Command, args []string) {
-	slog.Info("Starting netappsd worker")
-
 	ctx := httpext.ContextWithSIGINT(context.Background(), 0)
-	f := new(FilerClient)
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
-	podName := viper.GetString("pod_name")
-	podNamespace := viper.GetString("pod_namespace")
+	r := time.Duration(rand.Intn(30)) * time.Second
 
-	// request filer from the master with timeout
+	slog.Info("Starting netappsd worker")
+	slog.Info("Waiting for random seconds", "seconds", r)
+
+	select {
+	case <-ctx.Done():
+		slog.Info("Context done")
+		os.Exit(1)
+	case <-time.After(r):
+	}
+
+	f := new(NetappsdWorker)
+	podNamespace := viper.GetString("pod_namespace")
+	podName := viper.GetString("pod_name")
+
 	url := masterUrl + "/next/filer?pod=" + podName
 	if err := f.RequestFiler(ctx, url, 5*time.Second /* requestInterval */, 5*time.Minute /* requestTimeout */); err != nil {
 		slog.Error("failed to request filer", "error", err.Error())
@@ -61,12 +70,12 @@ func run(cmd *cobra.Command, args []string) {
 		slog.Error("failed to render filer template", "error", err.Error())
 		os.Exit(2)
 	}
-	if err := setLabel(ctx, podNamespace, podName, "filer", f.Filer.Name); err != nil {
-		slog.Error("failed to set filer label", "error", err.Error())
+	if err := setPodLabel(ctx, podNamespace, podName, "filer", f.Filer.Name); err != nil {
+		slog.Error("failed to set pod label", "error", err.Error(), "filer", f.Filer.Name)
 		os.Exit(2)
 	}
 
-	slog.Info("pod label set", "filer", f.Filer.Name, "pod", podName)
+	slog.Info("set pod label", "filer", f.Filer.Name, "pod", podName)
 
 	// probe filer and set health status to unhealthy if probe fails
 	// pod will be reest by kubernetes via health check
@@ -76,24 +85,16 @@ func run(cmd *cobra.Command, args []string) {
 	must.Succeed(httpext.ListenAndServeContext(ctx, httpListenAddr, mux))
 }
 
-// setLabel sets the filer label on the pod
-func setLabel(ctx context.Context, namespace, podName, key, value string) error {
-	config, err := rest.InClusterConfig()
+func setPodLabel(ctx context.Context, namespace, podName, labelKey, labelValue string) error {
+	kubeclientset, err := utils.NewKubeClient()
 	if err != nil {
 		return err
 	}
-	clientset, err := kubernetes.NewForConfig(config)
+	pod, err := kubeclientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
-	pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	pod.Labels[key] = value
-	_, err = clientset.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	return nil
+	pod.Labels[labelKey] = labelValue
+	_, err = kubeclientset.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
+	return err
 }

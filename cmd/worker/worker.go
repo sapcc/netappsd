@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -15,15 +16,16 @@ import (
 	"github.com/sapcc/netappsd/internal/pkg/netapp"
 	"github.com/sapcc/netappsd/internal/pkg/netbox"
 	"github.com/sapcc/netappsd/internal/pkg/utils"
+	"github.com/spf13/viper"
 )
 
-type FilerClient struct {
+type NetappsdWorker struct {
 	Filer    *netbox.Filer
 	Client   *netapp.RestClient
 	probeerr error
 }
 
-func (f *FilerClient) RequestFiler(ctx context.Context, url string, requestInterval, requestTimeout time.Duration) error {
+func (f *NetappsdWorker) RequestFiler(ctx context.Context, url string, requestInterval, requestTimeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	timeout := time.NewTimer(requestTimeout)
 	t := new(utils.TickTick) // use ticktick to avoid delay on first request
@@ -38,7 +40,7 @@ func (f *FilerClient) RequestFiler(ctx context.Context, url string, requestInter
 		case <-t.After(requestInterval):
 			filer, err := f.fetch(url)
 			if err != nil {
-				log.Warn("failed to fetch filer", "error", err.Error())
+				slog.Warn("failed to fetch filer", "error", err.Error())
 				continue
 			}
 			f.Filer = filer
@@ -51,8 +53,8 @@ func (f *FilerClient) RequestFiler(ctx context.Context, url string, requestInter
 	}
 }
 
-func (f *FilerClient) ProbeFiler(ctx context.Context, wg *sync.WaitGroup, probeInterval time.Duration) {
-	log.Debug("starting filer probe")
+func (f *NetappsdWorker) ProbeFiler(ctx context.Context, wg *sync.WaitGroup, probeInterval time.Duration) {
+	slog.Debug("starting filer probe")
 	wg.Add(1)
 	defer wg.Done()
 
@@ -61,8 +63,8 @@ func (f *FilerClient) ProbeFiler(ctx context.Context, wg *sync.WaitGroup, probeI
 		case <-time.After(probeInterval):
 			if f.Client == nil {
 				f.Client = netapp.NewRestClient(f.Filer.Host, &netapp.ClientOptions{
-					BasicAuthUser:     netappUsername,
-					BasicAuthPassword: netappPassword,
+					BasicAuthUser:     viper.GetString("netapp_username"),
+					BasicAuthPassword: viper.GetString("netapp_password"),
 					Timeout:           30 * time.Second,
 				})
 			}
@@ -76,7 +78,7 @@ func (f *FilerClient) ProbeFiler(ctx context.Context, wg *sync.WaitGroup, probeI
 	}
 }
 
-func (f *FilerClient) fetch(url string) (*netbox.Filer, error) {
+func (f *NetappsdWorker) fetch(url string) (*netbox.Filer, error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
@@ -94,7 +96,7 @@ func (f *FilerClient) fetch(url string) (*netbox.Filer, error) {
 	return filer, nil
 }
 
-func (f *FilerClient) Render(templatePath, outputPath string) error {
+func (f *NetappsdWorker) Render(templatePath, outputPath string) error {
 	fo, err := os.Create(outputPath)
 	if err != nil {
 		return err
@@ -107,7 +109,7 @@ func (f *FilerClient) Render(templatePath, outputPath string) error {
 	return tpl.Execute(fo, f.Filer)
 }
 
-func (f *FilerClient) AddTo(r *mux.Router) {
+func (f *NetappsdWorker) AddTo(r *mux.Router) {
 	r.Methods("GET").Path("/healthz").HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			if f.probeerr != nil {
