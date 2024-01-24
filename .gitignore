@@ -10,6 +10,7 @@ _output/
 debug
 *.out
 filers.yaml
+example.yaml
 # *.yaml.tpl
 
 
