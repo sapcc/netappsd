@@ -15,7 +15,7 @@ type Filer struct {
 	IP               string `json:"ip,omitempty" yaml:"ip,omitempty"`
 }
 
-type Filers []Filer
+type Filers []*Filer
 
 func (nb Client) GetFilers(region, query string) (filers Filers, err error) {
 	switch query {
@@ -86,7 +86,7 @@ func makeFilers(nb Client, region string, devices []*models.DeviceWithConfigCont
 				}
 			}
 			if hasChildDevice {
-				filers = append(filers, Filer{
+				filers = append(filers, &Filer{
 					Name:             *d.Name,
 					Host:             *d.Name + ".cc." + region + ".cloud.sap",
 					AvailabilityZone: strings.ToLower(*d.Site.Name),
