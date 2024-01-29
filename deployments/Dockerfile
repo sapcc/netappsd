@@ -1,13 +1,9 @@
 FROM alpine:3.18
 LABEL source_repository="https://github.com/sapcc/netappsd"
 
+ENV GOGC=100
 RUN apk add --update curl && rm -rf /var/cache/apk/*
 
-ENV OS=linux
-ENV ARCH=amd64
-ENV GOGC=100
-
 WORKDIR /app
-
 COPY netappsd netappsd
-ENTRYPOINT [ "netappsd" ]
+ENTRYPOINT [ "/app/netappsd" ]
