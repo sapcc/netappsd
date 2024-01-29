@@ -26,3 +26,8 @@ profiles:
       - op: add
         path: /manifests/rawYaml/-
         value: _output/worker.yaml
+
+portForward:
+  - resourceType: deployment
+    resourceName: netappsd-worker
+    port: 13000
