@@ -1,4 +1,4 @@
-FROM keppel.eu-de-1.cloud.sap/ccloud-dockerhub-mirror/library/alpine:3.18
+FROM alpine:3.18
 LABEL source_repository="https://github.com/sapcc/netappsd"
 
 ENV GOGC=100
