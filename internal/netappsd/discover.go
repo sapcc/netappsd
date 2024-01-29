@@ -68,32 +68,34 @@ func (n *NetAppSD) Start(ctx context.Context) error {
 		for {
 			select {
 			case <-time.After(30 * time.Second):
-				// set number of replicas of the deployment to the number of filers
-				if len(n.filers) > 0 {
-					targetReplicas := int32(len(n.filers))
-					deploymentName := workerName
-					deployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
-					if err != nil {
-						slog.Error("failed to get deployment", "error", err)
-						continue
-					}
-					if *deployment.Spec.Replicas != targetReplicas {
-						slog.Info("set number of replicas", "target", targetReplicas, "current", *deployment.Spec.Replicas)
-						deployment.Spec.Replicas = &targetReplicas
-						_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
-						if err != nil {
-							slog.Error("failed to update deployment", "error", err)
-						}
-					}
+				if len(n.filers) == 0 {
+					continue
 				}
-
-				// update queue
+				if err := n.setDeploymentReplicas(int32(len(n.filers))); err != nil {
+					slog.Error("failed to set deployment replicas", "error", err)
+				}
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 
+	return nil
+}
+
+// setDeploymentReplicas sets the number of replicas of the worker deployment.
+func (n *NetAppSD) setDeploymentReplicas(targetReplicas int32) error {
+	deploymentName := workerName
+	deployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if *deployment.Spec.Replicas != targetReplicas {
+		slog.Info("set number of replicas", "target", targetReplicas, "current", *deployment.Spec.Replicas)
+		deployment.Spec.Replicas = &targetReplicas
+		_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
+		return err
+	}
 	return nil
 }
 
