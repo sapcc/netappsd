@@ -11,6 +11,8 @@ import (
 type Filer struct {
 	Name             string `json:"name" yaml:"name"`
 	Host             string `json:"host" yaml:"host"`
+	Username         string `json:"username,omitempty" yaml:"username,omitempty"`
+	Password         string `json:"password,omitempty" yaml:"password,omitempty"`
 	AvailabilityZone string `json:"availability_zone" yaml:"availability_zone"`
 	IP               string `json:"ip,omitempty" yaml:"ip,omitempty"`
 }

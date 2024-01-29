@@ -22,7 +22,7 @@ import (
 var (
 	httpListenAddr   string
 	masterUrl        string
-	outputFilePath   string
+	outputPath       string
 	templateFilePath string
 )
 
@@ -36,7 +36,7 @@ var Cmd = &cobra.Command{
 func init() {
 	Cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://localhost:8080", "The url of the netappsd-master")
 	Cmd.Flags().StringVarP(&httpListenAddr, "listen-addr", "l", ":8082", "The address to listen on")
-	Cmd.Flags().StringVarP(&outputFilePath, "output-file", "o", "harvest.yaml", "The path to the output file")
+	Cmd.Flags().StringVarP(&outputPath, "output-path", "o", "./", "The path to the output file")
 	Cmd.Flags().StringVarP(&templateFilePath, "template-file", "t", "harvest.yaml.tpl", "The path to the template file")
 }
 
@@ -45,7 +45,7 @@ func run(cmd *cobra.Command, args []string) {
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
-	r := time.Duration(rand.Intn(30)) * time.Second
+	r := time.Duration(rand.Intn(15)) * time.Second
 
 	slog.Info("Starting netappsd worker")
 	slog.Info("Waiting for random seconds", "seconds", r)
@@ -62,20 +62,20 @@ func run(cmd *cobra.Command, args []string) {
 	podName := viper.GetString("pod_name")
 
 	url := masterUrl + "/next/filer?pod=" + podName
-	if err := f.RequestFiler(ctx, url, 5*time.Second /* requestInterval */, 5*time.Minute /* requestTimeout */); err != nil {
+	if err := f.RequestFiler(ctx, url, 5*time.Second /* requestInterval */, 2*time.Minute /* requestTimeout */); err != nil {
 		slog.Error("failed to request filer", "error", err.Error())
 		os.Exit(2)
 	}
-	if err := f.Render(templateFilePath, outputFilePath); err != nil {
+	if err := f.Render(templateFilePath, outputPath); err != nil {
 		slog.Error("failed to render filer template", "error", err.Error())
-		os.Exit(2)
-	}
-	if err := setPodLabel(ctx, podNamespace, podName, "filer", f.Filer.Name); err != nil {
-		slog.Error("failed to set pod label", "error", err.Error(), "filer", f.Filer.Name)
 		os.Exit(2)
 	}
 
 	slog.Info("set pod label", "filer", f.Filer.Name, "pod", podName)
+	if err := setPodLabel(ctx, podNamespace, podName, "filer", f.Filer.Name); err != nil {
+		slog.Error("failed to set pod label", "error", err.Error(), "filer", f.Filer.Name)
+		os.Exit(2)
+	}
 
 	// probe filer and set health status to unhealthy if probe fails
 	// pod will be reest by kubernetes via health check

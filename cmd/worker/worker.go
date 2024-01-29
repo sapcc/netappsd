@@ -44,6 +44,8 @@ func (f *NetappsdWorker) RequestFiler(ctx context.Context, url string, requestIn
 				continue
 			}
 			f.Filer = filer
+			f.Filer.Username = viper.GetString("netapp_username")
+			f.Filer.Password = viper.GetString("netapp_password")
 			return nil
 		case <-timeout.C:
 			return fmt.Errorf("timed out after %s", requestTimeout)
@@ -63,8 +65,8 @@ func (f *NetappsdWorker) ProbeFiler(ctx context.Context, wg *sync.WaitGroup, pro
 		case <-time.After(probeInterval):
 			if f.Client == nil {
 				f.Client = netapp.NewRestClient(f.Filer.Host, &netapp.ClientOptions{
-					BasicAuthUser:     viper.GetString("netapp_username"),
-					BasicAuthPassword: viper.GetString("netapp_password"),
+					BasicAuthUser:     f.Filer.Username,
+					BasicAuthPassword: f.Filer.Password,
 					Timeout:           30 * time.Second,
 				})
 			}
@@ -97,6 +99,7 @@ func (f *NetappsdWorker) fetch(url string) (*netbox.Filer, error) {
 }
 
 func (f *NetappsdWorker) Render(templatePath, outputPath string) error {
+	outputPath = outputPath + "/" + f.Filer.Name + ".yaml"
 	fo, err := os.Create(outputPath)
 	if err != nil {
 		return err
