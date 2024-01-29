@@ -60,10 +60,6 @@ spec:
             periodSeconds: 10
             failureThreshold: 3
           {{- end }}
-      volumes:
-        - name: netappsd
-          secret:
-            secretName: netappsd
 ---
 apiVersion: v1
 kind: Service

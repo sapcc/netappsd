@@ -27,8 +27,8 @@ spec:
             - http://netappsd-master.netapp-exporters.svc:8080
             - --template-file
             - /app/harvest.yaml.tpl
-            - --output-file
-            - /app/harvest.yaml
+            - --output-path
+            - /app/shared
             - --debug
           resources:
             requests:
@@ -67,24 +67,81 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
           volumeMounts:
-            - name: harvest-yaml-tpl
+            - name: netappsd-harvest
               mountPath: /app/harvest.yaml.tpl
               subPath: harvest.yaml.tpl
+            - name: shared
+              mountPath: /app/shared
+        - name: harvest
+          image: keppel.eu-de-1.cloud.sap/ccloud-dockerhub-mirror/rahulguptajss/harvest:23.11.0-1
+          # image: keppel.eu-de-1.cloud.sap/ccloud-cr-netapp-io-mirror/harvest:23.11.0-1
+          imagePullPolicy: IfNotPresent 
+          command: ["/busybox/sh", "/opt/harvest/start_poller.sh"]
+          ports:
+            - name: metrics
+              containerPort: 13000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          volumeMounts:
+            - name: netappsd-harvest
+              mountPath: /opt/harvest/start_poller.sh
+              subPath: start_poller.sh
+            - name: netappsd-harvest
+              mountPath: /opt/harvest/conf/rest/custom.yaml
+              subPath: rest.custom.yaml
+            - name: netappsd-harvest
+              mountPath: /opt/harvest/conf/rest/9.12.0/custom_node.yaml
+              subPath: rest.custom_node.yaml
+            - name: netappsd-harvest
+              mountPath: /opt/harvest/conf/rest/9.12.0/custom_volume.yaml
+              subPath: rest.custom_volume.yaml
+            - name: netappsd-harvest
+              mountPath: /opt/harvest/conf/rest/limited.yaml
+              subPath: rest.limited.yaml
+            - name: netappsd-harvest
+              mountPath: /opt/harvest/conf/restperf/limited.yaml
+              subPath: restperf.limited.yaml
+            - name: shared
+              mountPath: /opt/harvest/shared
       volumes:
-        - name: netappsd
-          secret:
-            secretName: netappsd
-        - name: harvest-yaml-tpl
+        - name: netappsd-harvest
           configMap:
-            name: netappsd
+            name: netappsd-harvest
+        - name: shared
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: netappsd
+  name: netappsd-harvest
   namespace: netapp-exporters
 data:
   harvest.yaml.tpl:
-    {{ file.Read "./deployments/k8s/harvest.yaml.tpl" | toYAML | indent 2 }}
+    {{ file.Read "./deployments/k8s/etc/harvest.yaml.tpl" | toYAML | indent 2 }}
+  rest.custom.yaml:
+    {{ file.Read "./deployments/k8s/etc/rest.custom.yaml" | toYAML | indent 2 }}
+  rest.custom_node.yaml:
+    {{ file.Read "./deployments/k8s/etc/rest.custom_node.yaml" | toYAML | indent 2 }}
+  rest.custom_volume.yaml:
+    {{ file.Read "./deployments/k8s/etc/rest.custom_volume.yaml" | toYAML | indent 2 }}
+  rest.limited.yaml:
+    {{ file.Read "./deployments/k8s/etc/rest.limited.yaml" | toYAML | indent 2 }}
+  restperf.limited.yaml:
+    {{ file.Read "./deployments/k8s/etc/restperf.limited.yaml" | toYAML | indent 2 }}
+  start_poller.sh: |
+    until [ $(find /opt/harvest/shared -name '*.yaml' | wc -l) -gt 0 ]; do
+      echo "Waiting for config file to be generated"
+      sleep 5
+    done
+
+    # Find the config file in ./shared and run poller in it.
+    #
+    # The config file is generated in ./shared by netappsd-worker, and the file name is the same as the poller name.
+    exec find /opt/harvest/shared -name '*.yaml' -exec sh -c 'foo=$1; /opt/harvest/bin/poller --config $foo -p $(basename $foo .yaml)' _ {} \;
 ---
 

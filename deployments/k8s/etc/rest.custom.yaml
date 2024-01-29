@@ -1,0 +1,3 @@
+objects:
+  Lun: custom_lun.yaml
+  Volume: custom_volume.yaml

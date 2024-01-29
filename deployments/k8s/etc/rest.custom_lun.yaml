@@ -1,0 +1,8 @@
+counters:
+  - ^multiprotocol-type => multiprotocol_type
+  - ^application
+    
+export_options:
+  instance_keys:
+    - application
+    - state
