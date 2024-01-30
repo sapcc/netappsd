@@ -27,6 +27,7 @@ var Cmd = &cobra.Command{
 			Namespace:   viper.GetString("namespace"),
 			Region:      viper.GetString("region"),
 			ServiceType: viper.GetString("tag"),
+			WorkerName:  viper.GetString("workername"),
 		}
 
 		slog.Info("starting netappsd master")
@@ -49,6 +50,7 @@ func init() {
 	Cmd.Flags().StringP("netbox-token", "", "", "The token to authenticate against netbox")
 	Cmd.Flags().StringP("region", "r", "", "The region to filter netbox devices")
 	Cmd.Flags().StringP("tag", "t", "", "The tag to filter netbox devices")
+	Cmd.Flags().StringP("workername", "w", "", "The deployemnt name of workers")
 
 	viper.BindPFlag("listen_addr", Cmd.Flags().Lookup("listen-addr"))
 	viper.BindPFlag("netbox_host", Cmd.Flags().Lookup("netbox-host"))

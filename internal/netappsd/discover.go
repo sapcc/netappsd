@@ -22,6 +22,7 @@ type NetAppSD struct {
 	Namespace   string
 	Region      string
 	ServiceType string
+	WorkerName  string
 
 	netboxClient  *netbox.Client
 	kubeClientset *kubernetes.Clientset
@@ -85,7 +86,7 @@ func (n *NetAppSD) Start(ctx context.Context) error {
 
 // setDeploymentReplicas sets the number of replicas of the worker deployment.
 func (n *NetAppSD) setDeploymentReplicas(targetReplicas int32) error {
-	deploymentName := workerName
+	deploymentName := n.WorkerName
 	deployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
 	if err != nil {
 		return err
@@ -113,7 +114,7 @@ func (n *NetAppSD) updateQueue(lockq bool) {
 	queue := []*netbox.Filer{}
 
 	for _, filer := range n.filers {
-		podLabel := fmt.Sprintf("app=%s", workerName)
+		podLabel := fmt.Sprintf("name=%s", n.WorkerName)
 		podLabel += fmt.Sprintf(",filer=%s", filer.Name)
 		pod, err := n.getPodInReplicaset(n.replicaset, podLabel)
 		if err != nil {
