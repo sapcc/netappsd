@@ -27,10 +27,11 @@ var Cmd = &cobra.Command{
 			Namespace:   viper.GetString("namespace"),
 			Region:      viper.GetString("region"),
 			ServiceType: viper.GetString("tag"),
-			WorkerName:  viper.GetString("workername"),
+			WorkerName:  viper.GetString("worker"),
 		}
 
 		slog.Info("starting netappsd master")
+		slog.Info("netappsd master config", "region", netappsdMaster.NetAppSD.Region, "tag", netappsdMaster.NetAppSD.ServiceType, "worker", netappsdMaster.NetAppSD.WorkerName)
 
 		if err := netappsdMaster.Start(ctx); err != nil {
 			slog.Error(err.Error())
@@ -50,13 +51,14 @@ func init() {
 	Cmd.Flags().StringP("netbox-token", "", "", "The token to authenticate against netbox")
 	Cmd.Flags().StringP("region", "r", "", "The region to filter netbox devices")
 	Cmd.Flags().StringP("tag", "t", "", "The tag to filter netbox devices")
-	Cmd.Flags().StringP("workername", "w", "", "The deployemnt name of workers")
+	Cmd.Flags().StringP("worker", "w", "", "The deployemnt label of workers")
 
 	viper.BindPFlag("listen_addr", Cmd.Flags().Lookup("listen-addr"))
 	viper.BindPFlag("netbox_host", Cmd.Flags().Lookup("netbox-host"))
 	viper.BindPFlag("netbox_token", Cmd.Flags().Lookup("netbox-token"))
 	viper.BindPFlag("tag", Cmd.Flags().Lookup("tag"))
 	viper.BindPFlag("region", Cmd.Flags().Lookup("region"))
+	viper.BindPFlag("worker", Cmd.Flags().Lookup("worker"))
 
 	viper.BindEnv("namespace", "POD_NAMESPACE")
 }

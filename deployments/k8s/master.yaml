@@ -20,10 +20,15 @@ spec:
         - name: netappsd-master
           image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
           imagePullPolicy: Always
-          command: ["/app/netappsd"]
+          command: ["/app/netappsd", "master"]
           args:
-            - master
             - --debug
+            - --region
+            - qa-de-1
+            - --tag
+            - cinder
+            - --worker
+            - netappsd-worker
           resources:
             requests:
               cpu: 100m
