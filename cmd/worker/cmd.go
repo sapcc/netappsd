@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"os"
 	"sync"
@@ -45,17 +44,7 @@ func run(cmd *cobra.Command, args []string) {
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
-	r := time.Duration(rand.Intn(15)) * time.Second
-
 	slog.Info("Starting netappsd worker")
-	slog.Info("Waiting for random seconds", "seconds", r)
-
-	select {
-	case <-ctx.Done():
-		slog.Info("Context done")
-		os.Exit(1)
-	case <-time.After(r):
-	}
 
 	f := new(NetappsdWorker)
 	podNamespace := viper.GetString("pod_namespace")

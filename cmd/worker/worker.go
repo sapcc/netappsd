@@ -26,12 +26,10 @@ type NetappsdWorker struct {
 }
 
 func (f *NetappsdWorker) RequestFiler(ctx context.Context, url string, requestInterval, requestTimeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	timeout := time.NewTimer(requestTimeout)
 	t := new(utils.TickTick) // use ticktick to avoid delay on first request
 
 	defer func() {
-		cancel()
 		timeout.Stop()
 	}()
 
@@ -71,7 +69,7 @@ func (f *NetappsdWorker) ProbeFiler(ctx context.Context, wg *sync.WaitGroup, pro
 				})
 			}
 			f.probeerr = nil
-			if _, err := f.Client.Get("/api/storage/aggregates", nil); err != nil {
+			if _, err := f.Client.Get("/api/storage/aggregates"); err != nil {
 				f.probeerr = err
 			}
 		case <-ctx.Done():

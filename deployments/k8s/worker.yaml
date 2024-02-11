@@ -10,6 +10,11 @@ spec:
     matchLabels:
       app: netappsd-worker
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   template:
     metadata:
       labels:
@@ -17,65 +22,10 @@ spec:
     spec:
       serviceAccountName: netappsd
       containers:
-        - name: netappsd-worker
-          image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
-          imagePullPolicy: Always
-          command: ["/app/netappsd"]
-          args:
-            - worker
-            - --master-url
-            - http://netappsd-master.netapp-exporters.svc:8080
-            - --template-file
-            - /app/harvest.yaml.tpl
-            - --output-path
-            - /app/shared
-            - --debug
-          resources:
-            requests:
-              cpu: 100m
-              memory: 100Mi
-            limits:
-              cpu: 500m
-              memory: 500Mi
-          {{- if (.Env.production | conv.ToBool) }}
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 15
-            timeoutSeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
-          {{- end }}
-          env:
-            - name: NETAPP_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: netappsd
-                  key: netappUsername
-            - name: NETAPP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: netappsd
-                  key: netappPassword
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-          volumeMounts:
-            - name: netappsd-harvest
-              mountPath: /app/harvest.yaml.tpl
-              subPath: harvest.yaml.tpl
-            - name: shared
-              mountPath: /app/shared
-        - name: harvest
+        - name: poller
           image: keppel.eu-de-1.cloud.sap/ccloud-dockerhub-mirror/rahulguptajss/harvest:23.11.0-1
           # image: keppel.eu-de-1.cloud.sap/ccloud-cr-netapp-io-mirror/harvest:23.11.0-1
-          imagePullPolicy: IfNotPresent 
+          imagePullPolicy: IfNotPresent
           command: ["/busybox/sh", "/opt/harvest/start_poller.sh"]
           ports:
             - name: metrics
@@ -108,6 +58,51 @@ spec:
               subPath: restperf.limited.yaml
             - name: shared
               mountPath: /opt/harvest/shared
+        - name: netappsd-worker
+          image: keppel.eu-de-1.cloud.sap/ccloud/netappsd-amd64:latest
+          imagePullPolicy: Always
+          command: ["/app/netappsd"]
+          args:
+            - worker
+            - --master-url
+            - http://netappsd-master.netapp-exporters.svc:8080
+            - --template-file
+            - /app/harvest.yaml.tpl
+            - --output-path
+            - /app/shared
+            - --debug
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          env:
+            - name: NETAPP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netappUsername
+            - name: NETAPP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netappPassword
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: netappsd-harvest
+              mountPath: /app/harvest.yaml.tpl
+              subPath: harvest.yaml.tpl
+            - name: shared
+              mountPath: /app/shared
       volumes:
         - name: netappsd-harvest
           configMap:

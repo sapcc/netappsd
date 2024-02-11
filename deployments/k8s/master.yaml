@@ -22,13 +22,15 @@ spec:
           imagePullPolicy: Always
           command: ["/app/netappsd", "master"]
           args:
-            - --debug
             - --region
             - qa-de-1
             - --tag
             - cinder
             - --worker
             - netappsd-worker
+            - --worker-label
+            - app=netappsd-worker
+            - --debug
           resources:
             requests:
               cpu: 100m
@@ -47,24 +49,20 @@ spec:
                 secretKeyRef:
                   name: netappsd
                   key: netboxToken
-          {{- if (.Env.production | conv.ToBool) }}
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 15
-            timeoutSeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 5
-            timeoutSeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
-          {{- end }}
+            - name: NETAPP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netappUsername
+            - name: NETAPP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: netappsd
+                  key: netappPassword
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
 ---
 apiVersion: v1
 kind: Service

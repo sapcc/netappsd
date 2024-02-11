@@ -11,11 +11,11 @@ import (
 )
 
 type RestClient struct {
+	client  *http.Client
+	options *ClientOptions
+
 	BaseURL   *url.URL
 	UserAgent string
-	client    *http.Client
-	options   *ClientOptions
-	// ResponseTimeout time.Duration
 }
 
 type ClientOptions struct {
@@ -26,34 +26,8 @@ type ClientOptions struct {
 	Timeout           time.Duration
 }
 
-func UpdateOptions(opts *ClientOptions) *ClientOptions {
-	defaultOpts := &ClientOptions{
-		SSLVerify: false,
-		Debug:     false,
-		Timeout:   60 * time.Second,
-	}
-	if opts != nil {
-		if opts.Debug {
-			defaultOpts.Debug = true
-		}
-		if opts.SSLVerify {
-			defaultOpts.SSLVerify = true
-		}
-		if opts.Timeout != 0 {
-			defaultOpts.Timeout = opts.Timeout
-		}
-		if opts.BasicAuthUser != "" {
-			defaultOpts.BasicAuthUser = opts.BasicAuthUser
-		}
-		if opts.BasicAuthPassword != "" {
-			defaultOpts.BasicAuthPassword = opts.BasicAuthPassword
-		}
-	}
-	return defaultOpts
-}
-
 func NewRestClient(host string, options *ClientOptions) *RestClient {
-	options = UpdateOptions(options)
+	options = mergeOptions(options)
 	httpClient := &http.Client{
 		Timeout: options.Timeout,
 		Transport: &http.Transport{
@@ -77,9 +51,8 @@ func NewRestClient(host string, options *ClientOptions) *RestClient {
 	}
 }
 
-func (c *RestClient) Get(uri string, options *ClientOptions) (*http.Response, error) {
-	options = UpdateOptions(options)
-	if options.Debug {
+func (c *RestClient) Get(uri string) (*http.Response, error) {
+	if c.options.Debug {
 		fmt.Printf("GET %s\n", uri)
 	}
 	return c.DoRequest(uri)
@@ -111,4 +84,30 @@ func checkResp(resp *http.Response, err error) (*http.Response, error) {
 	default:
 	}
 	return resp, fmt.Errorf("Error: HTTP code=%d, HTTP status=\"%s\"", resp.StatusCode, http.StatusText(resp.StatusCode))
+}
+
+func mergeOptions(opts *ClientOptions) *ClientOptions {
+	defaultOpts := &ClientOptions{
+		SSLVerify: false,
+		Debug:     false,
+		Timeout:   60 * time.Second,
+	}
+	if opts != nil {
+		if opts.Debug {
+			defaultOpts.Debug = true
+		}
+		if opts.SSLVerify {
+			defaultOpts.SSLVerify = true
+		}
+		if opts.Timeout != 0 {
+			defaultOpts.Timeout = opts.Timeout
+		}
+		if opts.BasicAuthUser != "" {
+			defaultOpts.BasicAuthUser = opts.BasicAuthUser
+		}
+		if opts.BasicAuthPassword != "" {
+			defaultOpts.BasicAuthPassword = opts.BasicAuthPassword
+		}
+	}
+	return defaultOpts
 }

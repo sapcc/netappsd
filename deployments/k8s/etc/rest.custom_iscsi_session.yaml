@@ -1,0 +1,5 @@
+name:                       IscsiSession
+query:                      api/protocols/san/iscsi/sessions
+object:                     iscsi_session
+
+# Doc: https://docs.netapp.com/us-en/ontap-restapi-9121/ontap/get-protocols-san-iscsi-sessions.html#related-ontap-commands

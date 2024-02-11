@@ -22,18 +22,21 @@ var Cmd = &cobra.Command{
 
 		netappsdMaster := new(NetappsdMaster)
 		netappsdMaster.NetAppSD = &netappsd.NetAppSD{
-			NetboxHost:  viper.GetString("netbox_host"),
-			NetboxToken: viper.GetString("netbox_token"),
-			Namespace:   viper.GetString("namespace"),
-			Region:      viper.GetString("region"),
-			ServiceType: viper.GetString("tag"),
-			WorkerName:  viper.GetString("worker"),
+			NetboxHost:     viper.GetString("netbox_host"),
+			NetboxToken:    viper.GetString("netbox_token"),
+			Namespace:      viper.GetString("pod_namespace"),
+			Region:         viper.GetString("region"),
+			ServiceType:    viper.GetString("tag"),
+			WorkerName:     viper.GetString("worker"),
+			WorkerLabel:    viper.GetString("worker_label"),
+			NetAppUsername: viper.GetString("netapp_username"),
+			NetAppPassword: viper.GetString("netapp_password"),
 		}
 
 		slog.Info("starting netappsd master")
 		slog.Info("netappsd master config", "region", netappsdMaster.NetAppSD.Region, "tag", netappsdMaster.NetAppSD.ServiceType, "worker", netappsdMaster.NetAppSD.WorkerName)
 
-		if err := netappsdMaster.Start(ctx); err != nil {
+		if err := netappsdMaster.Run(ctx); err != nil {
 			slog.Error(err.Error())
 			os.Exit(1)
 		}
@@ -46,12 +49,12 @@ var Cmd = &cobra.Command{
 
 func init() {
 	Cmd.Flags().StringP("listen-addr", "l", ":8080", "The address to listen on")
-	Cmd.Flags().StringP("namespace", "n", "netapp-exporters", "The namespace to use for netappsd")
 	Cmd.Flags().StringP("netbox-host", "", "netbox.staging.cloud.sap", "The netbox host to query")
 	Cmd.Flags().StringP("netbox-token", "", "", "The token to authenticate against netbox")
 	Cmd.Flags().StringP("region", "r", "", "The region to filter netbox devices")
 	Cmd.Flags().StringP("tag", "t", "", "The tag to filter netbox devices")
-	Cmd.Flags().StringP("worker", "w", "", "The deployemnt label of workers")
+	Cmd.Flags().StringP("worker", "w", "", "The deployemnt name of workers")
+	Cmd.Flags().StringP("worker-label", "", "", "The label of worker pods")
 
 	viper.BindPFlag("listen_addr", Cmd.Flags().Lookup("listen-addr"))
 	viper.BindPFlag("netbox_host", Cmd.Flags().Lookup("netbox-host"))
@@ -59,6 +62,5 @@ func init() {
 	viper.BindPFlag("tag", Cmd.Flags().Lookup("tag"))
 	viper.BindPFlag("region", Cmd.Flags().Lookup("region"))
 	viper.BindPFlag("worker", Cmd.Flags().Lookup("worker"))
-
-	viper.BindEnv("namespace", "POD_NAMESPACE")
+	viper.BindPFlag("worker_label", Cmd.Flags().Lookup("worker-label"))
 }
