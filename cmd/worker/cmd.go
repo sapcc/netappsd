@@ -55,14 +55,13 @@ func run(cmd *cobra.Command, args []string) {
 		slog.Error("failed to request filer", "error", err.Error())
 		os.Exit(2)
 	}
-	if err := f.Render(templateFilePath, outputPath); err != nil {
-		slog.Error("failed to render filer template", "error", err.Error())
-		os.Exit(2)
-	}
-
 	slog.Info("set pod label", "filer", f.Filer.Name, "pod", podName)
 	if err := setPodLabel(ctx, podNamespace, podName, "filer", f.Filer.Name); err != nil {
 		slog.Error("failed to set pod label", "error", err.Error(), "filer", f.Filer.Name)
+		os.Exit(2)
+	}
+	if err := f.Render(templateFilePath, outputPath); err != nil {
+		slog.Error("failed to render filer template", "error", err.Error())
 		os.Exit(2)
 	}
 

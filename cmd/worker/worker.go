@@ -54,7 +54,7 @@ func (f *NetappsdWorker) RequestFiler(ctx context.Context, url string, requestIn
 }
 
 func (f *NetappsdWorker) ProbeFiler(ctx context.Context, wg *sync.WaitGroup, probeInterval time.Duration) {
-	slog.Debug("starting filer probe")
+	slog.Info("start probing filer", "filer", f.Filer.Name)
 	wg.Add(1)
 	defer wg.Done()
 
@@ -70,6 +70,7 @@ func (f *NetappsdWorker) ProbeFiler(ctx context.Context, wg *sync.WaitGroup, pro
 			}
 			f.probeerr = nil
 			if _, err := f.Client.Get("/api/storage/aggregates"); err != nil {
+				slog.Warn("probe failed", "filer", f.Filer.Name, "error", f.probeerr)
 				f.probeerr = err
 			}
 		case <-ctx.Done():
