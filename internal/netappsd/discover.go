@@ -46,7 +46,7 @@ func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*netbox.Filer
 		return nil, fmt.Errorf("filer list is empty")
 	}
 	if len(n.queue) == 0 {
-		n.updateQueue(false)
+		n.updateQueue(ctx, false)
 	}
 	if len(n.queue) == 0 {
 		return nil, fmt.Errorf("no filer to work on")
@@ -96,14 +96,24 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 			select {
 			case <-tick.After(5 * time.Minute):
 				n.discover()
-				n.updateQueue(true)
+				n.updateQueue(ctx, true)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
 				if len(n.filers) > 0 {
 					if err := n.setDeploymentReplicas(int32(len(n.filers))); err != nil {
 						slog.Error("failed to set deployment replicas", "error", err)
 					}
 				}
-			case <-ctx.Done():
-				return
 			}
 		}
 	}()
@@ -155,7 +165,7 @@ func (n *NetAppSD) discover() {
 // queue. It receives lockq as an argument to determine whether to lock the
 // filer queue, so that it can be called from a method that already locks the
 // queue.
-func (n *NetAppSD) updateQueue(lockq bool) {
+func (n *NetAppSD) updateQueue(ctx context.Context, lockq bool) {
 	if lockq {
 		n.mu.Lock()
 		defer n.mu.Unlock()
@@ -165,7 +175,7 @@ func (n *NetAppSD) updateQueue(lockq bool) {
 
 	queue := []*netbox.Filer{}
 
-	pods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(context.TODO(), metav1.ListOptions{
+	pods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: n.WorkerLabel,
 	})
 	if err != nil {
