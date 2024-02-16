@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
@@ -34,6 +33,33 @@ type NetAppSD struct {
 	replicaset string
 	filers     []*netbox.Filer
 	queue      []*netbox.Filer
+}
+
+// NextFiler returns the next filer to work on. It returns an error if no filer
+// is available. We update the filer queue if the queue is empty. If the queue
+// is still empty, we return an error.
+func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*netbox.Filer, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if len(n.filers) == 0 {
+		return nil, fmt.Errorf("filer list is empty")
+	}
+	if len(n.queue) == 0 {
+		n.updateQueue(false)
+	}
+	if len(n.queue) == 0 {
+		return nil, fmt.Errorf("no filer to work on")
+	}
+	next := n.queue[0]
+	n.queue = n.queue[1:]
+
+	slog.Info("next filer", "filer", next.Name, "pod", podName)
+	return next, nil
+}
+
+func (n *NetAppSD) IsReady() bool {
+	return len(n.filers) > 0
 }
 
 // Run starts the netappsd service discovery. It runs a goroutine to discover
@@ -71,82 +97,6 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 	}()
 
 	return nil
-}
-
-// setDeploymentReplicas sets the number of replicas of the worker deployment.
-func (n *NetAppSD) setDeploymentReplicas(targetReplicas int32) error {
-	deploymentName := n.WorkerName
-	deployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	if *deployment.Spec.Replicas != targetReplicas {
-		slog.Info("set number of replicas", "target", targetReplicas, "current", *deployment.Spec.Replicas)
-		deployment.Spec.Replicas = &targetReplicas
-		_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
-		return err
-	}
-	return nil
-}
-
-// updateQueue updates the filer queue. It removes filers that are already
-// assigned to a worker pod. If error occurs, it returns without updating the
-// queue. It receives lockq as an argument to determine whether to lock the
-// filer queue, so that it can be called from a method that already locks the
-// queue.
-func (n *NetAppSD) updateQueue(lockq bool) {
-	if lockq {
-		n.mu.Lock()
-		defer n.mu.Unlock()
-	}
-
-	slog.Info("updating filer queue")
-
-	queue := []*netbox.Filer{}
-
-	for _, filer := range n.filers {
-		podLabel := n.WorkerLabel + ",filer=" + filer.Name
-		pod, err := n.getPodWithLabel(podLabel)
-		if err != nil {
-			slog.Error("failed to get pod with label", "error", err)
-			return
-		}
-		if pod == nil {
-			queue = append(queue, filer)
-		}
-	}
-
-	for _, q := range queue {
-		slog.Info("filer queue", "filer", q.Name)
-	}
-
-	n.queue = queue
-}
-
-// NextFiler returns the next filer to work on. It returns an error if no filer
-// is available. We update the filer queue if the queue is empty. If the queue
-// is still empty, we return an error.
-func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*netbox.Filer, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	if len(n.filers) == 0 {
-		return nil, fmt.Errorf("filer list is empty")
-	}
-	if len(n.queue) == 0 {
-		n.updateQueue(false)
-	}
-	if len(n.queue) == 0 {
-		return nil, fmt.Errorf("no filer to work on")
-	}
-	next := n.queue[0]
-	n.queue = n.queue[1:]
-	slog.Info("next filer", "filer", next.Name, "pod", podName)
-	return next, nil
-}
-
-func (n *NetAppSD) IsReady() bool {
-	return len(n.filers) > 0
 }
 
 // discover queries netbox for filers and cache the filer list.
@@ -188,20 +138,58 @@ func (n *NetAppSD) discover() {
 	n.filers = healthyFilers
 }
 
-// getPodWithLabel gets a pod in a replicaset filtered by label
-func (n *NetAppSD) getPodWithLabel(label string) (*corev1.Pod, error) {
+// updateQueue updates the filer queue. It removes filers that are already
+// assigned to a worker pod. If error occurs, it returns without updating the
+// queue. It receives lockq as an argument to determine whether to lock the
+// filer queue, so that it can be called from a method that already locks the
+// queue.
+func (n *NetAppSD) updateQueue(lockq bool) {
+	if lockq {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+	}
+
+	slog.Info("updating filer queue")
+
+	queue := []*netbox.Filer{}
+
 	pods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(context.TODO(), metav1.ListOptions{
-		LabelSelector: label,
+		LabelSelector: n.WorkerLabel,
 	})
 	if err != nil {
-		return nil, err
+		slog.Error("failed to get pods", "error", err)
+		return
 	}
-	for _, pod := range pods.Items {
-		// check if pod is running
-		if pod.Status.Phase == corev1.PodRunning {
-			return &pod, nil
+
+	for _, filer := range n.filers {
+		found := false
+		for _, pod := range pods.Items {
+			if pod.Labels["filer"] == filer.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			slog.Info("filer queue", "filer", filer.Name)
+			queue = append(queue, filer)
 		}
 	}
 
-	return nil, nil
+	n.queue = queue
+}
+
+// setDeploymentReplicas sets the number of replicas of the worker deployment.
+func (n *NetAppSD) setDeploymentReplicas(targetReplicas int32) error {
+	deploymentName := n.WorkerName
+	deployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if *deployment.Spec.Replicas != targetReplicas {
+		slog.Info("set number of replicas", "target", targetReplicas, "current", *deployment.Spec.Replicas)
+		deployment.Spec.Replicas = &targetReplicas
+		_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
+		return err
+	}
+	return nil
 }
