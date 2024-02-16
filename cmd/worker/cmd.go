@@ -47,17 +47,11 @@ func run(cmd *cobra.Command, args []string) {
 	slog.Info("Starting netappsd worker")
 
 	f := new(NetappsdWorker)
-	podNamespace := viper.GetString("pod_namespace")
 	podName := viper.GetString("pod_name")
 
 	url := masterUrl + "/next/filer?pod=" + podName
 	if err := f.RequestFiler(ctx, url, 5*time.Second /* requestInterval */, 2*time.Minute /* requestTimeout */); err != nil {
 		slog.Error("failed to request filer", "error", err.Error())
-		os.Exit(2)
-	}
-	slog.Info("set pod label", "filer", f.Filer.Name, "pod", podName)
-	if err := setPodLabel(ctx, podNamespace, podName, "filer", f.Filer.Name); err != nil {
-		slog.Error("failed to set pod label", "error", err.Error(), "filer", f.Filer.Name)
 		os.Exit(2)
 	}
 	if err := f.Render(templateFilePath, outputPath); err != nil {

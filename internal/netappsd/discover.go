@@ -52,9 +52,21 @@ func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*netbox.Filer
 		return nil, fmt.Errorf("no filer to work on")
 	}
 	next := n.queue[0]
-	n.queue = n.queue[1:]
 
+	slog.Info("set pod label", "filer", next.Name, "pod", podName)
+	pod, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pod: %s", err)
+	}
+	pod.Labels["filer"] = next.Name
+	_, err = n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, pod, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update pod: %s", err)
+	}
+
+	n.queue = n.queue[1:]
 	slog.Info("next filer", "filer", next.Name, "pod", podName)
+
 	return next, nil
 }
 
@@ -149,7 +161,7 @@ func (n *NetAppSD) updateQueue(lockq bool) {
 		defer n.mu.Unlock()
 	}
 
-	slog.Info("updating filer queue")
+	slog.Info("updating filer queue", "filers", len(n.filers), "queue_len", len(n.queue))
 
 	queue := []*netbox.Filer{}
 
