@@ -1,10 +1,11 @@
-ifeq ($(KUBECTL_CONTEXT),)
-$(error KUBECTL_CONTEXT is not set)
-endif
+# ifeq ($(KUBECTL_CONTEXT),)
+# $(error KUBECTL_CONTEXT is not set)
+# endif
 
 OS?=linux
 ARCH?=amd64
 PROFILE?=master,worker
+KUBECTL_CONTEXT?=qa-de-1
 
 GOFILES:=$(shell find . -name '*.go' -not -path "./vendor/*")
 GOPATH:=$(shell go env GOPATH)
@@ -69,33 +70,3 @@ clear:
 	kubectl delete -f $(OUT_DIR)/netappsd.yaml --ignore-not-found
 	kubectl delete -f $(OUT_DIR)/master.yaml --ignore-not-found
 	kubectl delete -f $(OUT_DIR)/worker.yaml --ignore-not-found
-
-# export debug=0
-# export enable_master=1
-# export enable_worker=1
-#
-# .Phony: debug debug-master debug-worker
-#
-# debug: export debug=1
-# debug: 
-# 	$(call generate_manifests,$(OUT_DIR)/manifests.yaml)
-# 	skaffold debug --profile=debug --namespace=netapp-exporters --kube-context $(KUBECTL_CONTEXT)
-
-# debug-master: export enable_worker=0
-# debug-master: debug
-#
-# debug-worker: export enable_master=0
-# debug-worker: debug
-#
-# # Deploy
-# # ------
-# # TODO: use skaffold to deploy to k8s
-#
-# .Phony: manifests.yaml deploy delete-k8s
-#
-#
-# deploy: $(OUT_DIR)/manifests.yaml build-container
-# 	kubectl apply -f $(OUT_DIR)/manifests.yaml
-#
-# delete-k8s: $(OUT_DIR)/manifests.yaml
-# 	kubectl delete -f $(OUT_DIR)/manifests.yaml

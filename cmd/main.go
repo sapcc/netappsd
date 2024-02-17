@@ -37,15 +37,19 @@ func init() {
 
 	rootCmd.AddCommand(master.Cmd)
 	rootCmd.AddCommand(worker.Cmd)
+
+	logLvl := new(slog.LevelVar)
+	addSource := false
+
+	if viper.GetBool("debug") {
+		logLvl.Set(slog.LevelDebug)
+		addSource = true
+	}
+
+	handler := utils.NewHandler(logLvl, addSource)
+	slog.SetDefault(slog.New(handler))
 }
 
 func initConfig() {
 	viper.AutomaticEnv()
-
-	logLvl := new(slog.LevelVar)
-	if viper.GetBool("debug") {
-		logLvl.Set(slog.LevelDebug)
-	}
-	logger := utils.NewLogger(logLvl, true /*addSource*/)
-	slog.SetDefault(logger)
 }

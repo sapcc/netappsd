@@ -192,7 +192,7 @@ func (n *NetAppSD) updateQueue(ctx context.Context, lockq bool) {
 			}
 		}
 		if !found {
-			slog.Info("filer queue", "filer", filer.Name)
+			slog.Debug("filer queue", "filer", filer.Name)
 			queue = append(queue, filer)
 		}
 	}
