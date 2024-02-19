@@ -109,10 +109,8 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-time.After(10 * time.Second):
-				if len(n.filers) > 0 {
-					if err := n.setDeploymentReplicas(int32(len(n.filers))); err != nil {
-						slog.Error("failed to set deployment replicas", "error", err)
-					}
+				if err := n.setDeploymentReplicas(ctx); err != nil {
+					slog.Warn("failed to set deployment replicas", "error", err)
 				}
 			}
 		}
@@ -201,17 +199,58 @@ func (n *NetAppSD) updateQueue(ctx context.Context, lockq bool) {
 }
 
 // setDeploymentReplicas sets the number of replicas of the worker deployment.
-func (n *NetAppSD) setDeploymentReplicas(targetReplicas int32) error {
+func (n *NetAppSD) setDeploymentReplicas(ctx context.Context) error {
 	deploymentName := n.WorkerName
-	deployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	deployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
-	if *deployment.Spec.Replicas != targetReplicas {
-		slog.Info("set number of replicas", "target", targetReplicas, "current", *deployment.Spec.Replicas)
-		deployment.Spec.Replicas = &targetReplicas
-		_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
-		return err
+
+	currentReplicas := *deployment.Spec.Replicas
+	targetReplicas := int32(len(n.filers))
+
+	// no need to scale up or down
+	if currentReplicas == targetReplicas {
+		return nil
 	}
-	return nil
+
+	// make sure to delete the correct pods before scaling down
+	// the worker for discovered filers should be running
+	// the worker for undiscovered filers should be not ready
+	// if currentReplicas > targetReplicas {
+	// 	filerMap := make(map[string]bool)
+	// 	for _, filer := range n.filers {
+	// 		filerMap[filer.Name] = true
+	// 	}
+	//
+	// 	pods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
+	// 		LabelSelector: n.WorkerLabel,
+	// 	})
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	for _, pod := range pods.Items {
+	// 		if _, found := filerMap[pod.Labels["filer"]]; found {
+	// 			// found pod should be running
+	// 			if pod.Status.Phase != "Running" {
+	// 				return nil
+	// 			}
+	// 		} else {
+	// 			// unfound pod should be not ready
+	// 			if pod.Status.Phase == "Running" {
+	// 				return nil
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	// do not scale down pods
+	if currentReplicas > targetReplicas {
+		return fmt.Errorf("current replicas is greater than target replicas")
+	}
+
+	slog.Info("set number of replicas", "target", targetReplicas, "current", *deployment.Spec.Replicas)
+	deployment.Spec.Replicas = &targetReplicas
+	_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+	return err
 }
