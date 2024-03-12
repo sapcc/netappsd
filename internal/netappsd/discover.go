@@ -20,7 +20,7 @@ type NetAppSD struct {
 	NetboxToken    string
 	Namespace      string
 	Region         string
-	ServiceType    string
+	FilerTag       string
 	WorkerName     string
 	WorkerLabel    string
 	NetAppUsername string
@@ -94,7 +94,7 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 		for {
 			select {
 			case <-tick.After(5 * time.Minute):
-				n.discover()
+				n.discover(ctx)
 				n.updateQueue(ctx, true)
 			case <-ctx.Done():
 				return
@@ -119,41 +119,50 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 }
 
 // discover queries netbox for filers and cache the filer list.
-func (n *NetAppSD) discover() {
-	// fetch filers from netbox
-	filers, err := n.netboxClient.GetFilers(n.Region, n.ServiceType)
-	if err != nil {
-		slog.Error("failed to get filers", "error", err)
-		return
-	}
-	// probe the filers to check if they are reachable
-	healthyFilers := make([]*netbox.Device, 0)
-	for _, f := range filers {
-		go func(filer *netbox.Device) {
-			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := f.Probe(ctx); err != nil {
-				slog.Warn("failed to probe filer", "filer", filer.Name, "error", err)
-			} else {
-				healthyFilers = append(healthyFilers, filer)
-			}
-		}(f)
-	}
-
-	// log the filer if it is new to the filer list
+func (n *NetAppSD) discover(ctx context.Context) {
+	// cache old filers, so that only new filer will be logged
+	newFilers := make([]*netbox.Device, 0)
 	oldFilers := make(map[string]bool)
 	for _, filer := range n.filers {
 		oldFilers[filer.Name] = true
 	}
-	for _, filer := range healthyFilers {
-		if _, found := oldFilers[filer.Name]; !found {
-			slog.Info("discovered new filer", "filer", filer.Name)
-		}
+
+	// query netbox for filers with the specified tag
+	filers, err := n.netboxClient.GetFilers(n.Region, n.FilerTag)
+	if err != nil {
+		slog.Error("discover failed", "error", err)
+		return
 	}
 
-	slog.Info(fmt.Sprintf("discovered %d filers", len(healthyFilers)))
-	n.filers = healthyFilers
+	wg := sync.WaitGroup{}
+
+	// probe the filers to check if they are reachable
+	for _, f := range filers {
+		wg.Add(1)
+
+		go func(filer *netbox.Device) {
+			_ctx, _cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer func() {
+				_cancel()
+				wg.Done()
+			}()
+
+			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
+			if err := f.Probe(_ctx); err != nil {
+				slog.Warn("failed to probe filer", "filer", filer.Name, "error", err)
+			} else {
+				newFilers = append(newFilers, filer)
+				if _, found := oldFilers[filer.Name]; !found {
+					slog.Info("discovered new filer", "filer", filer.Name)
+				}
+			}
+		}(f)
+	}
+
+	wg.Wait()
+
+	slog.Info(fmt.Sprintf("discovered %d filers", len(newFilers)))
+	n.filers = newFilers
 }
 
 // updateQueue updates the filer queue. It removes filers that are already

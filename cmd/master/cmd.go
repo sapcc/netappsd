@@ -26,7 +26,7 @@ var Cmd = &cobra.Command{
 			NetboxToken:    viper.GetString("netbox_token"),
 			Namespace:      viper.GetString("pod_namespace"),
 			Region:         viper.GetString("region"),
-			ServiceType:    viper.GetString("tag"),
+			FilerTag:       viper.GetString("tag"),
 			WorkerName:     viper.GetString("worker"),
 			WorkerLabel:    viper.GetString("worker_label"),
 			NetAppUsername: viper.GetString("netapp_username"),
@@ -34,7 +34,7 @@ var Cmd = &cobra.Command{
 		}
 
 		slog.Info("starting netappsd master")
-		slog.Info("netappsd master config", "region", netappsdMaster.NetAppSD.Region, "tag", netappsdMaster.NetAppSD.ServiceType, "worker", netappsdMaster.NetAppSD.WorkerName)
+		slog.Info("netappsd master config", "region", netappsdMaster.Region, "tag", netappsdMaster.FilerTag, "worker", netappsdMaster.WorkerName)
 
 		if err := netappsdMaster.Run(ctx); err != nil {
 			slog.Error(err.Error())
