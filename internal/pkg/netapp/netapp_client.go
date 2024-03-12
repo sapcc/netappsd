@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type RestClient struct {
@@ -23,13 +22,11 @@ type ClientOptions struct {
 	BasicAuthPassword string
 	SSLVerify         bool
 	Debug             bool
-	Timeout           time.Duration
 }
 
 func NewRestClient(host string, options *ClientOptions) *RestClient {
 	options = mergeOptions(options)
 	httpClient := &http.Client{
-		Timeout: options.Timeout,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: !options.SSLVerify,
@@ -51,14 +48,14 @@ func NewRestClient(host string, options *ClientOptions) *RestClient {
 	}
 }
 
-func (c *RestClient) Get(uri string) (*http.Response, error) {
+func (c *RestClient) Get(ctx context.Context, uri string) (*http.Response, error) {
 	if c.options.Debug {
 		fmt.Printf("GET %s\n", uri)
 	}
-	return c.DoRequest(uri)
+	return c.DoRequest(ctx, uri)
 }
 
-func (c *RestClient) DoRequest(uri string) (*http.Response, error) {
+func (c *RestClient) DoRequest(ctx context.Context, uri string) (*http.Response, error) {
 	url, _ := c.BaseURL.Parse(uri)
 	req, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
@@ -69,8 +66,6 @@ func (c *RestClient) DoRequest(uri string) (*http.Response, error) {
 	if c.options.BasicAuthUser != "" && c.options.BasicAuthPassword != "" {
 		req.SetBasicAuth(c.options.BasicAuthUser, c.options.BasicAuthPassword)
 	}
-	ctx, cncl := context.WithTimeout(context.Background(), c.options.Timeout)
-	defer cncl()
 	return checkResp(c.client.Do(req.WithContext(ctx)))
 }
 
@@ -83,14 +78,13 @@ func checkResp(resp *http.Response, err error) (*http.Response, error) {
 		return resp, nil
 	default:
 	}
-	return resp, fmt.Errorf("Error: HTTP code=%d, HTTP status=\"%s\"", resp.StatusCode, http.StatusText(resp.StatusCode))
+	return resp, fmt.Errorf("HTTP code=%d, HTTP status=\"%s\"", resp.StatusCode, http.StatusText(resp.StatusCode))
 }
 
 func mergeOptions(opts *ClientOptions) *ClientOptions {
 	defaultOpts := &ClientOptions{
 		SSLVerify: false,
 		Debug:     false,
-		Timeout:   60 * time.Second,
 	}
 	if opts != nil {
 		if opts.Debug {
@@ -98,9 +92,6 @@ func mergeOptions(opts *ClientOptions) *ClientOptions {
 		}
 		if opts.SSLVerify {
 			defaultOpts.SSLVerify = true
-		}
-		if opts.Timeout != 0 {
-			defaultOpts.Timeout = opts.Timeout
 		}
 		if opts.BasicAuthUser != "" {
 			defaultOpts.BasicAuthUser = opts.BasicAuthUser

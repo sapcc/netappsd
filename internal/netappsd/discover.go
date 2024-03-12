@@ -25,20 +25,19 @@ type NetAppSD struct {
 	WorkerLabel    string
 	NetAppUsername string
 	NetAppPassword string
+	replicaset     string
 
 	netboxClient  *netbox.Client
 	kubeClientset *kubernetes.Clientset
-
-	mu         sync.Mutex
-	replicaset string
-	filers     []*netbox.Filer
-	queue      []*netbox.Filer
+	filers        []*netbox.Device
+	queue         []*netbox.Device
+	mu            sync.Mutex
 }
 
 // NextFiler returns the next filer to work on. It returns an error if no filer
 // is available. We update the filer queue if the queue is empty. If the queue
 // is still empty, we return an error.
-func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*netbox.Filer, error) {
+func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*netbox.Device, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -127,20 +126,19 @@ func (n *NetAppSD) discover() {
 		slog.Error("failed to get filers", "error", err)
 		return
 	}
-
 	// probe the filers to check if they are reachable
-	healthyFilers := make([]*netbox.Filer, 0)
-	for _, filer := range filers {
-		client := netapp.NewRestClient(filer.Host, &netapp.ClientOptions{
-			BasicAuthUser:     n.NetAppUsername,
-			BasicAuthPassword: n.NetAppPassword,
-			Timeout:           30 * time.Second,
-		})
-		if _, err := client.Get("/api/storage/aggregates"); err != nil {
-			slog.Warn("failed to probe filer", "filer", filer.Name, "error", err)
-			continue
-		}
-		healthyFilers = append(healthyFilers, filer)
+	healthyFilers := make([]*netbox.Device, 0)
+	for _, f := range filers {
+		go func(filer *netbox.Device) {
+			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := f.Probe(ctx); err != nil {
+				slog.Warn("failed to probe filer", "filer", filer.Name, "error", err)
+			} else {
+				healthyFilers = append(healthyFilers, filer)
+			}
+		}(f)
 	}
 
 	// log the filer if it is new to the filer list
@@ -171,7 +169,7 @@ func (n *NetAppSD) updateQueue(ctx context.Context, lockq bool) {
 
 	slog.Info("updating filer queue", "filers", len(n.filers), "queue_len", len(n.queue))
 
-	queue := []*netbox.Filer{}
+	queue := []*netbox.Device{}
 
 	pods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: n.WorkerLabel,
@@ -254,3 +252,19 @@ func (n *NetAppSD) setDeploymentReplicas(ctx context.Context) error {
 	_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 	return err
 }
+
+// ProbeFiler checks if the filer is reachable. It returns an error if the filer
+// func (f *NetappsdWorker) ProbeFiler(ctx context.Context) error {
+// 	if f.Client == nil {
+// 		f.Client = netapp.NewRestClient(f.Filer.Host, &netapp.ClientOptions{
+// 			BasicAuthUser:     f.Filer.Username,
+// 			BasicAuthPassword: f.Filer.Password,
+// 		})
+// 	}
+// 	_, err := f.Client.Get(ctx, "/api/storage/aggregates")
+// 	if err != nil {
+// 		slog.Warn("probe failed", "filer", f.Filer.Name, "error", err)
+// 	}
+// 	return err
+// }
+//

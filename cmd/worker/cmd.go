@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/sapcc/go-bits/httpapi"
@@ -21,7 +20,7 @@ import (
 var (
 	httpListenAddr   string
 	masterUrl        string
-	outputPath       string
+	outputFilePath   string
 	templateFilePath string
 )
 
@@ -35,33 +34,37 @@ var Cmd = &cobra.Command{
 func init() {
 	Cmd.Flags().StringVarP(&masterUrl, "master-url", "m", "http://localhost:8080", "The url of the netappsd-master")
 	Cmd.Flags().StringVarP(&httpListenAddr, "listen-addr", "l", ":8082", "The address to listen on")
-	Cmd.Flags().StringVarP(&outputPath, "output-path", "o", "./", "The path to the output file")
+	Cmd.Flags().StringVarP(&outputFilePath, "output-file", "o", "harvest.yaml", "The path to the output file")
 	Cmd.Flags().StringVarP(&templateFilePath, "template-file", "t", "harvest.yaml.tpl", "The path to the template file")
 }
 
 func run(cmd *cobra.Command, args []string) {
-	ctx := httpext.ContextWithSIGINT(context.Background(), 0)
-	wg := new(sync.WaitGroup)
-	defer wg.Wait()
-
 	slog.Info("Starting netappsd worker")
-
 	f := new(NetappsdWorker)
-	podName := viper.GetString("pod_name")
 
-	url := masterUrl + "/next/filer?pod=" + podName
-	if err := f.RequestFiler(ctx, url, 5*time.Second /* requestInterval */, 2*time.Minute /* requestTimeout */); err != nil {
-		slog.Error("failed to request filer", "error", err.Error())
-		os.Exit(2)
+	ctx := httpext.ContextWithSIGINT(context.Background(), 0)
+	requestURL := masterUrl + "/next/filer?pod=" + viper.GetString("pod_name")
+	ticker := new(utils.TickTick)
+
+REQUESTFILER:
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.After(10 * time.Second):
+			if err := f.RequestFiler(requestURL); err != nil {
+				slog.Warn("failed to request filer", "error", err.Error())
+				continue
+			}
+			break REQUESTFILER
+		}
 	}
-	if err := f.Render(templateFilePath, outputPath); err != nil {
+
+	if err := f.Render(templateFilePath, outputFilePath); err != nil {
 		slog.Error("failed to render filer template", "error", err.Error())
-		os.Exit(2)
+		os.Exit(1)
 	}
 
-	// probe filer and set health status to unhealthy if probe fails
-	// pod will be reest by kubernetes via health check
-	go f.ProbeFiler(ctx, wg, 5*time.Minute /* probeInterval */)
 	mux := http.NewServeMux()
 	mux.Handle("/", httpapi.Compose(f))
 	must.Succeed(httpext.ListenAndServeContext(ctx, httpListenAddr, mux))

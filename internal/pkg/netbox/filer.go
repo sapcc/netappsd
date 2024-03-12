@@ -8,18 +8,14 @@ import (
 	"github.com/netbox-community/go-netbox/v3/netbox/models"
 )
 
-type Filer struct {
+type Device struct {
 	Name             string `json:"name" yaml:"name"`
 	Host             string `json:"host" yaml:"host"`
-	Username         string `json:"username,omitempty" yaml:"username,omitempty"`
-	Password         string `json:"password,omitempty" yaml:"password,omitempty"`
 	AvailabilityZone string `json:"availability_zone" yaml:"availability_zone"`
 	IP               string `json:"ip,omitempty" yaml:"ip,omitempty"`
 }
 
-type Filers []*Filer
-
-func (nb Client) GetFilers(region, query string) (filers Filers, err error) {
+func (nb Client) GetFilers(region, query string) (filers []*Device, err error) {
 	switch query {
 	case "md", "manila":
 		filers, err = getFilersByTag(nb, region, "manila")
@@ -38,7 +34,7 @@ func (nb Client) GetFilers(region, query string) (filers Filers, err error) {
 	return filers, nil
 }
 
-func getFilersByTag(nb Client, region, tag string) (Filers, error) {
+func getFilersByTag(nb Client, region, tag string) ([]*Device, error) {
 	var (
 		roleFiler    = "filer"
 		manufacturer = "netapp"
@@ -59,14 +55,14 @@ func getFilersByTag(nb Client, region, tag string) (Filers, error) {
 	return makeFilers(nb, region, devices), nil
 }
 
-func makeFilers(nb Client, region string, devices []*models.DeviceWithConfigContext) Filers {
+func makeFilers(nb Client, region string, devices []*models.DeviceWithConfigContext) []*Device {
 	// IP address is not maintained in netbox for the filer cluster, therefore
 	// filer name is used to determin the host name.
 	//
 	// TODO: Use the ip address of the first node as the host ip. To do that,
 	// one should read the IP of the installed device on the first node
 	// bay.
-	filers := make(Filers, 0)
+	filers := make([]*Device, 0)
 	for _, d := range devices {
 		// Ignore filer cluster with no nodes
 		if deviceBays, err := nb.GetDeviceBaysByDeviceID(d.ID); err == nil {
@@ -88,7 +84,7 @@ func makeFilers(nb Client, region string, devices []*models.DeviceWithConfigCont
 				}
 			}
 			if hasChildDevice {
-				filers = append(filers, &Filer{
+				filers = append(filers, &Device{
 					Name:             *d.Name,
 					Host:             *d.Name + ".cc." + region + ".cloud.sap",
 					AvailabilityZone: strings.ToLower(*d.Site.Name),
