@@ -54,9 +54,10 @@ REQUESTFILER:
 		case <-ticker.After(10 * time.Second):
 			if err := f.RequestFiler(requestURL); err != nil {
 				slog.Warn("failed to request filer", "error", err.Error())
-				continue
+			} else {
+				slog.Info("filer requested", "filer", f.Name, "host", f.Host)
+				break REQUESTFILER
 			}
-			break REQUESTFILER
 		}
 	}
 

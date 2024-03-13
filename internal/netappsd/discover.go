@@ -149,11 +149,11 @@ func (n *NetAppSD) discover(ctx context.Context) {
 
 			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
 			if err := f.Probe(_ctx); err != nil {
-				slog.Warn("failed to probe filer", "filer", filer.Name, "error", err)
+				slog.Warn("failed to probe filer", "filer", filer.Name, "host", filer.Host, "error", err)
 			} else {
 				newFilers = append(newFilers, filer)
 				if _, found := oldFilers[filer.Name]; !found {
-					slog.Info("discovered new filer", "filer", filer.Name)
+					slog.Info("discovered new filer", "filer", filer.Name, "host", filer.Host)
 				}
 			}
 		}(f)
