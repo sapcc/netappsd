@@ -18,6 +18,7 @@ type NetappsdMaster struct {
 // worked on. It also registers the /healthz endpoint, which is used by the
 // Kubernetes readiness/liveness probe.
 func (n *NetappsdMaster) AddTo(r *mux.Router) {
+	// next filer endpoint
 	r.Methods("GET").
 		Path("/next/filer").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +41,8 @@ func (n *NetappsdMaster) AddTo(r *mux.Router) {
 			}
 			respondwith.JSON(w, 200, filer)
 		})
+
+	// health check endpoint
 	r.Methods("GET").
 		Path("/healthz").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sapcc/go-bits/httpapi"
 	"github.com/sapcc/go-bits/httpext"
 	"github.com/sapcc/go-bits/must"
@@ -43,6 +44,7 @@ var Cmd = &cobra.Command{
 
 		mux := http.NewServeMux()
 		mux.Handle("/", httpapi.Compose(netappsdMaster))
+		mux.Handle("/metrics", promhttp.Handler())
 		must.Succeed(httpext.ListenAndServeContext(ctx, viper.GetString("listen_addr"), mux))
 	},
 }

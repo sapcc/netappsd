@@ -6,6 +6,7 @@ require (
 	github.com/go-openapi/runtime v0.23.3
 	github.com/gorilla/mux v1.8.0
 	github.com/netbox-community/go-netbox/v3 v3.4.5
+	github.com/prometheus/client_golang v1.14.0
 	github.com/sapcc/go-bits v0.0.0-20230203091932-bc999fbc3108
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.1
@@ -51,7 +52,6 @@ require (
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect
-	github.com/prometheus/client_golang v1.14.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.39.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect

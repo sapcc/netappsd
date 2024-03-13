@@ -25,7 +25,6 @@ type NetAppSD struct {
 	WorkerLabel    string
 	NetAppUsername string
 	NetAppPassword string
-	replicaset     string
 
 	netboxClient  *netbox.Client
 	kubeClientset *kubernetes.Clientset
@@ -147,11 +146,14 @@ func (n *NetAppSD) discover(ctx context.Context) {
 				wg.Done()
 			}()
 
+			discoveredFilers.Reset()
+
 			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
 			if err := f.Probe(_ctx); err != nil {
 				slog.Warn("failed to probe filer", "filer", filer.Name, "host", filer.Host, "error", err)
 			} else {
 				newFilers = append(newFilers, filer)
+				discoveredFilers.WithLabelValues(filer.Name, filer.Host).Set(1)
 				if _, found := oldFilers[filer.Name]; !found {
 					slog.Info("discovered new filer", "filer", filer.Name, "host", filer.Host)
 				}
