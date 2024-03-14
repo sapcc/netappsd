@@ -223,36 +223,6 @@ func (n *NetAppSD) setDeploymentReplicas(ctx context.Context) error {
 		return nil
 	}
 
-	// make sure to delete the correct pods before scaling down
-	// the worker for discovered filers should be running
-	// the worker for undiscovered filers should be not ready
-	// if currentReplicas > targetReplicas {
-	// 	filerMap := make(map[string]bool)
-	// 	for _, filer := range n.filers {
-	// 		filerMap[filer.Name] = true
-	// 	}
-	//
-	// 	pods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
-	// 		LabelSelector: n.WorkerLabel,
-	// 	})
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	for _, pod := range pods.Items {
-	// 		if _, found := filerMap[pod.Labels["filer"]]; found {
-	// 			// found pod should be running
-	// 			if pod.Status.Phase != "Running" {
-	// 				return nil
-	// 			}
-	// 		} else {
-	// 			// unfound pod should be not ready
-	// 			if pod.Status.Phase == "Running" {
-	// 				return nil
-	// 			}
-	// 		}
-	// 	}
-	// }
-
 	// do not scale down pods
 	if currentReplicas > targetReplicas {
 		return fmt.Errorf("current replicas is greater than target replicas")
@@ -264,18 +234,3 @@ func (n *NetAppSD) setDeploymentReplicas(ctx context.Context) error {
 	return err
 }
 
-// ProbeFiler checks if the filer is reachable. It returns an error if the filer
-// func (f *NetappsdWorker) ProbeFiler(ctx context.Context) error {
-// 	if f.Client == nil {
-// 		f.Client = netapp.NewRestClient(f.Filer.Host, &netapp.ClientOptions{
-// 			BasicAuthUser:     f.Filer.Username,
-// 			BasicAuthPassword: f.Filer.Password,
-// 		})
-// 	}
-// 	_, err := f.Client.Get(ctx, "/api/storage/aggregates")
-// 	if err != nil {
-// 		slog.Warn("probe failed", "filer", f.Filer.Name, "error", err)
-// 	}
-// 	return err
-// }
-//

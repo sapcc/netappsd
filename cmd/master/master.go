@@ -22,36 +22,31 @@ func (n *NetappsdMaster) AddTo(r *mux.Router) {
 	r.Methods("GET").
 		Path("/next/filer").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
 			podname := r.URL.Query().Get("pod")
 			if podname == "" {
-				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte("missing pod parameter"))
+				respondwith.JSON(w, http.StatusBadRequest, "missing pod parameter")
 				return
 			}
 			if !n.IsValidPodName(podname) {
-				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte("invalid pod name"))
+				respondwith.JSON(w, http.StatusBadRequest, "invalid pod name")
 				return
 			}
-			ctx := r.Context()
-			filer, err := n.NextFiler(ctx, podname)
-			if err != nil {
+			if filer, err := n.NextFiler(ctx, podname); err != nil {
 				respondwith.ErrorText(w, err)
-				return
+			} else {
+				respondwith.JSON(w, 200, filer)
 			}
-			respondwith.JSON(w, 200, filer)
 		})
 
 	// health check endpoint
 	r.Methods("GET").
 		Path("/healthz").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if n.IsReady() {
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("OK"))
+			if !n.IsReady() {
+				respondwith.JSON(w, http.StatusServiceUnavailable, "NOT READY")
 			} else {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write([]byte("NOT READY"))
+				respondwith.JSON(w, http.StatusOK, "OK")
 			}
 		})
 }
