@@ -146,14 +146,14 @@ func (n *NetAppSD) discover(ctx context.Context) {
 				wg.Done()
 			}()
 
-			discoveredFilers.Reset()
+			discoveredFiler.Reset()
 
 			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
 			if err := f.Probe(_ctx); err != nil {
 				slog.Warn("failed to probe filer", "filer", filer.Name, "host", filer.Host, "error", err)
 			} else {
 				newFilers = append(newFilers, filer)
-				discoveredFilers.WithLabelValues(filer.Name, filer.Host).Set(1)
+				discoveredFiler.WithLabelValues(filer.Name, filer.Host).Set(1)
 				if _, found := oldFilers[filer.Name]; !found {
 					slog.Info("discovered new filer", "filer", filer.Name, "host", filer.Host)
 				}
@@ -218,19 +218,27 @@ func (n *NetAppSD) setDeploymentReplicas(ctx context.Context) error {
 	currentReplicas := *deployment.Spec.Replicas
 	targetReplicas := int32(len(n.filers))
 
+	defer func() {
+		workerReplicas.WithLabelValues().Set(float64(currentReplicas))
+	}()
+
 	// no need to scale up or down
 	if currentReplicas == targetReplicas {
 		return nil
 	}
 
-	// do not scale down pods
+	// do not scale down pods; because ohterwise we have to make sure that the correct pod is deleted
 	if currentReplicas > targetReplicas {
-		return fmt.Errorf("current replicas is greater than target replicas")
+		return fmt.Errorf("current replicas (%d) is greater than target replicas (%d)", currentReplicas, targetReplicas)
 	}
 
 	slog.Info("set number of replicas", "target", targetReplicas, "current", *deployment.Spec.Replicas)
 	deployment.Spec.Replicas = &targetReplicas
-	_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, deployment, metav1.UpdateOptions{})
-	return err
-}
+	if _, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, deployment, metav1.UpdateOptions{}); err != nil {
+		return err
+	} else {
+		currentReplicas = targetReplicas
+	}
 
+	return nil
+}
