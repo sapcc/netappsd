@@ -150,7 +150,7 @@ func (n *NetAppSD) discover(ctx context.Context) {
 
 			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
 			if err := f.Probe(_ctx); err != nil {
-				probeFilerErrors.WithLabelValues("filer", filer.Name, "filer_host", filer.Host).Inc()
+				probeFilerErrors.WithLabelValues(filer.Name, filer.Host).Inc()
 				slog.Warn("failed to probe filer", "filer", filer.Name, "host", filer.Host, "error", err)
 			} else {
 				newFilers = append(newFilers, filer)
