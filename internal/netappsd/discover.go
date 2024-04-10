@@ -85,6 +85,8 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 		n.kubeClientset = clientset
 	}
 
+	discoverCh := make(chan struct{})
+
 	go func() {
 		tick := new(utils.TickTick)
 		for {
@@ -92,11 +94,11 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 			case <-tick.After(5 * time.Minute):
 				if err := n.discover(ctx); err != nil {
 					slog.Error("failed to discover filers", "error", err)
-				}
-				if err := n.updateWorkerDeployment(ctx); err != nil {
-					slog.Error("failed to set worker replicas", "error", err)
+				} else {
+					discoverCh <- struct{}{}
 				}
 			case <-ctx.Done():
+				close(discoverCh)
 				return
 			}
 		}
@@ -105,12 +107,13 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 	go func() {
 		for {
 			select {
+			case <-discoverCh:
 			case <-time.After(30 * time.Second):
-				if err := n.updateWorkerDeployment(ctx); err != nil {
-					slog.Error("failed to set worker replicas", "error", err)
-				}
 			case <-ctx.Done():
 				return
+			}
+			if err := n.updateWorkerDeployment(ctx); err != nil {
+				slog.Error("failed to set worker replicas", "error", err)
 			}
 		}
 	}()
@@ -120,8 +123,10 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 
 // discover queries netbox for filers and cache the filer list.
 func (n *NetAppSD) discover(ctx context.Context) error {
-	// cache old filers, so that only new filer will be logged
+	newFilersMu := sync.Mutex{}
 	newFilers := make([]*Filer, 0)
+
+	// cache old filers, so that only new filer will be logged
 	oldFilers := make(map[string]bool)
 	for _, filer := range n.filers {
 		oldFilers[filer.Name] = true
@@ -137,7 +142,6 @@ func (n *NetAppSD) discover(ctx context.Context) error {
 
 	wg := sync.WaitGroup{}
 
-	// probe the filers to check if they are reachable
 	for _, f := range filers {
 		wg.Add(1)
 
@@ -146,12 +150,14 @@ func (n *NetAppSD) discover(ctx context.Context) error {
 
 			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
 			if err := f.Probe(ctx); err != nil {
-				slog.Info("probe filer failed", "filer", filer.Name, "host", filer.Host, "error", err)
+				slog.Warn("probe filer failed", "filer", filer.Name, "host", filer.Host, "error", err)
 				probeFilerErrors.WithLabelValues(filer.Name, filer.Host).Inc()
 			} else {
+				newFilersMu.Lock()
 				newFilers = append(newFilers, filer)
+				newFilersMu.Unlock()
 				if _, found := oldFilers[filer.Name]; !found {
-					slog.Info("new filer", "filer", filer.Name, "host", filer.Host)
+					slog.Info("filer discovered", "filer", filer.Name, "host", filer.Host)
 				}
 				discoveredFiler.WithLabelValues(filer.Name, filer.Host).Inc()
 			}
@@ -159,7 +165,11 @@ func (n *NetAppSD) discover(ctx context.Context) error {
 	}
 
 	wg.Wait()
+
+	n.mu.Lock()
 	n.filers = newFilers
+	n.mu.Unlock()
+
 	return nil
 }
 
@@ -200,11 +210,11 @@ func (n *NetAppSD) updateWorkerDeployment(ctx context.Context) error {
 		return err
 	}
 	if *workerDeployment.Spec.Replicas != targetReplicas {
+		slog.Info("set number of replicas", "target", targetReplicas, "current", *workerDeployment.Spec.Replicas)
 		workerDeployment.Spec.Replicas = &targetReplicas
 		if _, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, workerDeployment, metav1.UpdateOptions{}); err != nil {
 			return err
 		}
-		slog.Info("set number of replicas", "target", targetReplicas, "current", *workerDeployment.Spec.Replicas)
 		workerReplicas.WithLabelValues().Set(float64(targetReplicas))
 	}
 
