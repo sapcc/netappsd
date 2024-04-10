@@ -133,7 +133,8 @@ func (n *NetAppSD) discover(ctx context.Context) error {
 		return err
 	}
 
-	discoveredFiler.Reset()
+	slog.Info(fmt.Sprintf("%d filers discovered; check if they are reachable", len(filers)))
+
 	wg := sync.WaitGroup{}
 
 	// probe the filers to check if they are reachable
@@ -145,21 +146,19 @@ func (n *NetAppSD) discover(ctx context.Context) error {
 
 			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
 			if err := f.Probe(ctx); err != nil {
+				slog.Info("probe filer failed", "filer", filer.Name, "host", filer.Host, "error", err)
 				probeFilerErrors.WithLabelValues(filer.Name, filer.Host).Inc()
-				slog.Warn("failed to probe filer", "filer", filer.Name, "host", filer.Host, "error", err)
 			} else {
 				newFilers = append(newFilers, filer)
-				discoveredFiler.WithLabelValues(filer.Name, filer.Host).Set(1)
 				if _, found := oldFilers[filer.Name]; !found {
-					slog.Info("discovered new filer", "filer", filer.Name, "host", filer.Host)
+					slog.Info("new filer", "filer", filer.Name, "host", filer.Host)
 				}
+				discoveredFiler.WithLabelValues(filer.Name, filer.Host).Inc()
 			}
 		}(ctx, (*Filer)(f))
 	}
 
 	wg.Wait()
-
-	slog.Info(fmt.Sprintf("discovered %d filers", len(newFilers)))
 	n.filers = newFilers
 	return nil
 }
@@ -209,14 +208,15 @@ func (n *NetAppSD) updateWorkerDeployment(ctx context.Context) error {
 		workerReplicas.WithLabelValues().Set(float64(targetReplicas))
 	}
 
-	// add filers that are to be worked on to the queue
+	// set the filer queue with the filers that are to be worked on
 	queue := make([]*Filer, 0)
 	for _, filer := range n.filers {
 		if _, found := filerMap[filer.Name]; found {
 			queue = append(queue, filer)
 		}
 	}
-	slog.Info("updated filer queue", "queue", len(queue), "filers", len(n.filers))
 	n.queue = queue
+
+	slog.Info("updated worker deployment and queue", "replicas", targetReplicas, "filers", len(n.filers), "queue", len(n.queue))
 	return nil
 }

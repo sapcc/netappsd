@@ -5,9 +5,14 @@ import (
 )
 
 var (
-	discoveredFiler = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	discoveredFiler = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "netappsd_discovered_filer",
 		Help: "Filer discovered from netbox.",
+	}, []string{"filer", "filer_host"})
+
+	probeFilerErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "netappsd_probe_filer_errors",
+		Help: "Number of errors encountered while probing filer.",
 	}, []string{"filer", "filer_host"})
 
 	workerReplicas = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -15,14 +20,10 @@ var (
 		Help: "Number of worker replicas.",
 	}, []string{})
 
-	probeFilerErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "netappsd_probe_filer_errors",
-		Help: "Number of errors encountered while probing filer.",
-	}, []string{"filer", "filer_host"})
 )
 
 func init() {
 	prometheus.MustRegister(discoveredFiler)
-	prometheus.MustRegister(workerReplicas)
 	prometheus.MustRegister(probeFilerErrors)
+	prometheus.MustRegister(workerReplicas)
 }
