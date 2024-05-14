@@ -180,9 +180,15 @@ func (n *NetAppSD) updateWorkerDeployment(ctx context.Context) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	filerMap := make(map[string]bool)
+	const (
+		discoveredFiler int = 0
+		scrapedFiler    int = 1
+	)
+
+	// create a map of filers for quick lookup, ...
+	filerMap := make(map[string]int)
 	for _, filer := range n.filers {
-		filerMap[filer.Name] = true
+		filerMap[filer.Name] = discoveredFiler
 	}
 
 	workerPods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
@@ -192,25 +198,53 @@ func (n *NetAppSD) updateWorkerDeployment(ctx context.Context) error {
 		return err
 	}
 
-	// remove worker pods that are not associated with any discovered filer
 	for _, pod := range workerPods.Items {
 		if _, found := filerMap[pod.Labels["filer"]]; found {
-			delete(filerMap, pod.Labels["filer"])
-		} else {
-			pod.Annotations["controller.kubernetes.io/pod-deletion-cost"] = "-999"
-			if _, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, &pod, metav1.UpdateOptions{}); err != nil {
-				return err
+			filerMap[pod.Labels["filer"]] = scrapedFiler
+			continue
+		}
+
+		// annotate the pod with a deletion cost to delete it when scaling down
+		pod.Annotations["controller.kubernetes.io/pod-deletion-cost"] = "-999"
+		if _, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, &pod, metav1.UpdateOptions{}); err != nil {
+			return err
+		}
+
+		// check if the pod annotation is set before proceeding to the next pod
+		err = func(ctx context.Context) error {
+			timeout, cancle := context.WithTimeout(ctx, 10*time.Second)
+			defer cancle()
+			for {
+				select {
+				case <-timeout.Done():
+					return fmt.Errorf("context canceled")
+				default:
+					time.Sleep(1 * time.Second)
+					pod, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+					if err != nil {
+						return err
+					}
+					if _, found := pod.Annotations["controller.kubernetes.io/pod-deletion-cost"]; found {
+						slog.Info("set pod annotation", "pod", pod.Name, "annotation", "controller.kubernetes.io/pod-deletion-cost")
+						return nil
+					}
+				}
 			}
+		}(ctx)
+		if err != nil {
+			return err
 		}
 	}
+
 	// update the number of replicas of the worker deployment
-	targetReplicas := int32(len(n.filers))
 	workerDeployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(ctx, n.WorkerName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
-	if *workerDeployment.Spec.Replicas != targetReplicas {
-		slog.Info("set number of replicas", "target", targetReplicas, "current", *workerDeployment.Spec.Replicas)
+	currentReplicas := *workerDeployment.Spec.Replicas
+	targetReplicas := int32(len(n.filers))
+	if currentReplicas != targetReplicas {
+		slog.Info("set number of replicas", "target", targetReplicas, "current", currentReplicas)
 		workerDeployment.Spec.Replicas = &targetReplicas
 		if _, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, workerDeployment, metav1.UpdateOptions{}); err != nil {
 			return err
@@ -221,8 +255,11 @@ func (n *NetAppSD) updateWorkerDeployment(ctx context.Context) error {
 	// set the filer queue with the filers that are to be worked on
 	queue := make([]*Filer, 0)
 	for _, filer := range n.filers {
-		if _, found := filerMap[filer.Name]; found {
-			queue = append(queue, filer)
+		if status, found := filerMap[filer.Name]; found {
+			if status == discoveredFiler {
+				slog.Debug("filer added to queue", "filer", filer.Name)
+				queue = append(queue, filer)
+			}
 		}
 	}
 	n.queue = queue
