@@ -258,6 +258,7 @@ func (n *NetAppSD) updateWorkerDeployment(ctx context.Context) error {
 		if status, found := filerMap[filer.Name]; found {
 			if status == discoveredFiler {
 				slog.Debug("filer added to queue", "filer", filer.Name)
+				enqueuedFiler.WithLabelValues(filer.Name, filer.Host).Set(1)
 				queue = append(queue, filer)
 			}
 		}
