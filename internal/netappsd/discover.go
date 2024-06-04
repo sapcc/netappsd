@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,8 +31,9 @@ type NetAppSD struct {
 
 	netboxClient  *netbox.Client
 	kubeClientset *kubernetes.Clientset
-	filers        []*Filer
 	queue         []*Filer
+	filers        map[string]*Filer
+	filerscores   map[string]int
 	mu            sync.Mutex
 }
 
@@ -42,9 +44,6 @@ func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*Filer, error
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if len(n.filers) == 0 {
-		return nil, fmt.Errorf("filer list is empty")
-	}
 	if len(n.queue) == 0 {
 		return nil, fmt.Errorf("no filer to work on")
 	}
@@ -86,6 +85,8 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 		n.kubeClientset = clientset
 	}
 
+	n.filers = make(map[string]*Filer)
+	n.filerscores = make(map[string]int)
 	discoverCh := make(chan struct{})
 
 	go func() {
@@ -93,9 +94,10 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 		for {
 			select {
 			case <-tick.After(5 * time.Minute):
-				if err := n.discover(ctx); err != nil {
+				if count, err := n.discover(ctx); err != nil {
 					slog.Error("failed to discover filers", "error", err)
 				} else {
+					slog.Info("discovered filers", "count", count)
 					discoverCh <- struct{}{}
 				}
 			case <-ctx.Done():
@@ -113,6 +115,7 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			}
+			slog.Info("update worker replicas")
 			if err := n.updateWorkerReplica(ctx); err != nil {
 				slog.Error("failed to update worker replicas", "error", err)
 			}
@@ -123,55 +126,54 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 }
 
 // discover queries netbox for filers and cache the filer list.
-func (n *NetAppSD) discover(ctx context.Context) error {
-	newFilersMu := sync.Mutex{}
-	newFilers := make([]*Filer, 0)
-
-	// cache old filers, so that only new filer will be logged
-	oldFilers := make(map[string]bool)
-	for _, filer := range n.filers {
-		oldFilers[filer.Name] = true
+func (n *NetAppSD) discover(ctx context.Context) (int, error) {
+	if filers, err := n.netboxClient.GetFilers(n.Region, n.FilerTag); err != nil {
+		return 0, err
+	} else {
+		// update filers map and update filerscores map
+		n.filers = make(map[string]*Filer)
+		for _, f := range filers {
+			n.filers[f.Name] = (*Filer)(f)
+			if _, ok := n.filerscores[f.Name]; !ok {
+				n.filerscores[f.Name] = 2
+				slog.Info("new filer discovered", "name", f.Name, "host", f.Host)
+			}
+		}
+		for filerName := range n.filerscores {
+			if _, ok := n.filers[filerName]; !ok {
+				n.filerscores[filerName]--
+				slog.Info("filer not found in netbox", "filer", filerName)
+			}
+		}
 	}
 
-	// query netbox for filers with the specified tag
-	filers, err := n.netboxClient.GetFilers(n.Region, n.FilerTag)
-	if err != nil {
-		return err
-	}
-
-	slog.Info(fmt.Sprintf("%d filers discovered; check if they are reachable", len(filers)))
-
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	wg := sync.WaitGroup{}
+	count := atomic.Uint32{}
 
-	for _, f := range filers {
+	for _, f := range n.filers {
 		wg.Add(1)
 
 		go func(ctx context.Context, filer *Filer) {
 			defer wg.Done()
 
-			f := netapp.NewFiler(filer.Host, n.NetAppUsername, n.NetAppPassword)
-			if err := f.Probe(ctx); err != nil {
-				slog.Warn("probe filer failed", "filer", filer.Name, "host", filer.Host, "error", err)
+			c := netapp.NewFilerClient(filer.Host, n.NetAppUsername, n.NetAppPassword)
+
+			if err := c.Probe(ctx); err != nil {
+				n.filerscores[filer.Name]--
 				probeFilerErrors.WithLabelValues(filer.Name, filer.Host).Inc()
+				slog.Warn("probe filer failed", "filer", filer.Name, "host", filer.Host, "error", err)
 			} else {
-				newFilersMu.Lock()
-				newFilers = append(newFilers, filer)
-				newFilersMu.Unlock()
-				if _, found := oldFilers[filer.Name]; !found {
-					slog.Info("filer discovered", "filer", filer.Name, "host", filer.Host)
-				}
+				n.filerscores[filer.Name] = 2
 				discoveredFiler.WithLabelValues(filer.Name, filer.Host).Inc()
+				count.Add(1)
 			}
-		}(ctx, (*Filer)(f))
+		}(ctx, f)
 	}
 
 	wg.Wait()
-
-	n.mu.Lock()
-	n.filers = newFilers
-	n.mu.Unlock()
-
-	return nil
+	return int(count.Load()), nil
 }
 
 func (n *NetAppSD) updateWorkerReplica(ctx context.Context) error {
@@ -179,49 +181,47 @@ func (n *NetAppSD) updateWorkerReplica(ctx context.Context) error {
 	defer n.mu.Unlock()
 
 	freeWorkers := 0
-	filermap := make(map[string]int)
-	workermap := make(map[string]int)
-	queue := make([]*Filer, 0)
+	n.queue = make([]*Filer, 0)
+	workermap := make(map[string]struct{})
 
-	for _, filer := range n.filers {
-		filermap[filer.Name] = 1
-	}
-
-	workerDeployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(ctx, n.WorkerName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-
-	currentReplicas := *workerDeployment.Spec.Replicas
-
-	workerPods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
+	if workerPods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: n.WorkerLabel,
-	})
-	if err != nil {
+	}); err != nil {
 		return err
-	}
-
-	for _, pod := range workerPods.Items {
-		if filerName, found := pod.Labels["filer"]; found {
-			workermap[filerName] = 1
-		} else {
-			freeWorkers++
-			slog.Warn("pod is a free worker", "pod", pod.Name)
+	} else {
+		for _, pod := range workerPods.Items {
+			if filerName, found := pod.Labels["filer"]; !found {
+				freeWorkers++
+				slog.Warn("pod is a free worker", "pod", pod.Name)
+			} else {
+				workermap[filerName] = struct{}{}
+			}
 		}
 	}
 
-	for _, filer := range n.filers {
-		if _, found := workermap[filer.Name]; !found {
-			queue = append(queue, filer)
-			enqueuedFiler.WithLabelValues(filer.Name, filer.Host).Set(1)
+	for filerName, score := range n.filerscores {
+		if score == 2 {
+			if _, found := workermap[filerName]; !found {
+				filer := n.filers[filerName]
+				n.queue = append(n.queue, filer)
+				enqueuedFiler.WithLabelValues(filer.Name, filer.Host).Set(1)
+			}
+		}
+		if score < 0 {
+			if _, found := workermap[filerName]; !found {
+				delete(n.filerscores, filerName)
+			}
 		}
 	}
-
-	n.queue = queue
 
 	// scale up if there are not enough free workers
-	if len(queue) > freeWorkers {
-		targetReplicas := int32(int(currentReplicas) + len(queue) - freeWorkers)
+	if len(n.queue) > freeWorkers {
+		workerDeployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(ctx, n.WorkerName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		currentReplicas := *workerDeployment.Spec.Replicas
+		targetReplicas := int32(int(currentReplicas) + len(n.queue) - freeWorkers)
 		workerDeployment.Spec.Replicas = &targetReplicas
 		_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, workerDeployment, metav1.UpdateOptions{})
 		if err != nil {
@@ -229,31 +229,71 @@ func (n *NetAppSD) updateWorkerReplica(ctx context.Context) error {
 		}
 		workerReplicas.WithLabelValues().Set(float64(targetReplicas))
 		slog.Info("scale up worker deployment", "current", currentReplicas, "target", targetReplicas)
+		return nil
 	}
 
 	// return if the queue is not empty, we will scale down later to avoid free workers being deleted
-	if len(queue) > 0 {
+	if len(n.queue) > 0 {
+		return nil
+	}
+
+	if freeWorkers > 0 {
+		workerDeployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(ctx, n.WorkerName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		currentReplicas := *workerDeployment.Spec.Replicas
+		targetReplicas := int32(int(currentReplicas) - freeWorkers)
+		workerDeployment.Spec.Replicas = &targetReplicas
+		_, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, workerDeployment, metav1.UpdateOptions{})
+		if err != nil {
+			return err
+		}
+		workerReplicas.WithLabelValues().Set(float64(targetReplicas))
+		slog.Info("scale down worker deployment", "current", currentReplicas, "target", targetReplicas)
 		return nil
 	}
 
 	// retire workers that are not associated with any filer
-	retiredFilers := 0
-
-	for _, pod := range workerPods.Items {
-		if filerName, labelFound := pod.Labels["filer"]; labelFound {
-			if _, filerFound := filermap[filerName]; !filerFound {
+	countRetiredFilers := 0
+	if workerPods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: n.WorkerLabel,
+	}); err != nil {
+		return err
+	} else {
+		for _, pod := range workerPods.Items {
+			if filerName, hasLabel := pod.Labels["filer"]; !hasLabel {
 				pod.Annotations["controller.kubernetes.io/pod-deletion-cost"] = "-999"
 				if _, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, &pod, metav1.UpdateOptions{}); err != nil {
 					return err
 				}
-				retiredFilers++
-				slog.Info("set pod annotation", "pod", pod.Name, "annotation", "controller.kubernetes.io/pod-deletion-cost")
+				countRetiredFilers++
+				slog.Info("set pod annotation", "pod", pod.Name, "annotation", "controller.kubernetes.io/pod-deletion-cost=-999", "filer", "none")
+			} else {
+				if score, found := n.filerscores[filerName]; !found || score < 0 {
+					if pod.DeletionTimestamp != nil {
+						slog.Info("skip terminating pod", "pod", pod.Name)
+						continue
+					}
+					pod.Annotations["controller.kubernetes.io/pod-deletion-cost"] = "-999"
+					if _, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, &pod, metav1.UpdateOptions{}); err != nil {
+						return err
+					}
+					countRetiredFilers++
+					delete(n.filerscores, filerName)
+					slog.Info("set pod annotation", "pod", pod.Name, "annotation", "controller.kubernetes.io/pod-deletion-cost=-999", "filer", filerName)
+				}
 			}
 		}
 	}
 
-	if retiredFilers > 0 {
-		targetReplicas := int32(int(currentReplicas) - retiredFilers)
+	if countRetiredFilers > 0 {
+		workerDeployment, err := n.kubeClientset.AppsV1().Deployments(n.Namespace).Get(ctx, n.WorkerName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		currentReplicas := *workerDeployment.Spec.Replicas
+		targetReplicas := int32(int(currentReplicas) - countRetiredFilers)
 		workerDeployment.Spec.Replicas = &targetReplicas
 		if _, err = n.kubeClientset.AppsV1().Deployments(n.Namespace).Update(ctx, workerDeployment, metav1.UpdateOptions{}); err != nil {
 			return err

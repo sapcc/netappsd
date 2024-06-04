@@ -15,7 +15,7 @@ import (
 )
 
 type NetappsdWorker struct {
-	FilerClient *netapp.Filer
+	FilerClient *netapp.FilerClient
 	netbox.Device
 }
 
@@ -25,7 +25,7 @@ func (f *NetappsdWorker) RequestFiler(url string) error {
 	}
 	username := viper.GetString("netapp_username")
 	password := viper.GetString("netapp_password")
-	f.FilerClient = netapp.NewFiler(f.Host, username, password)
+	f.FilerClient = netapp.NewFilerClient(f.Host, username, password)
 	return nil
 }
 
