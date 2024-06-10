@@ -25,7 +25,7 @@ var Cmd = &cobra.Command{
 		workerName := viper.GetString("worker")
 		workerLabel := viper.GetString("worker_label")
 		if workerLabel == "" {
-			workerLabel = fmt.Sprintf("app=%s", workerName)
+			workerLabel = fmt.Sprintf("name=%s", workerName)
 		}
 
 		netappsdMaster := new(NetappsdMaster)
