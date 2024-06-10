@@ -12,7 +12,7 @@ type Device struct {
 	Name             string `json:"name" yaml:"name"`
 	Host             string `json:"host" yaml:"host"`
 	AvailabilityZone string `json:"availability_zone" yaml:"availability_zone"`
-	IP               string `json:"ip,omitempty" yaml:"ip,omitempty"`
+	Ip               string `json:"ip,omitempty" yaml:"ip,omitempty"`
 }
 
 func (nb Client) GetFilers(region, query string) (filers []*Device, err error) {
@@ -88,7 +88,7 @@ func makeFilers(nb Client, region string, devices []*models.DeviceWithConfigCont
 					Name:             *d.Name,
 					Host:             *d.Name + ".cc." + region + ".cloud.sap",
 					AvailabilityZone: strings.ToLower(*d.Site.Name),
-					IP:               ip,
+					Ip:               ip,
 				})
 			}
 		}

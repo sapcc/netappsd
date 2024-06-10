@@ -2,6 +2,7 @@ package master
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -21,6 +22,12 @@ var Cmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, _ []string) {
 		ctx := httpext.ContextWithSIGINT(context.Background(), 0)
 
+		workerName := viper.GetString("worker")
+		workerLabel := viper.GetString("worker_label")
+		if workerLabel == "" {
+			workerLabel = fmt.Sprintf("app=%s", workerName)
+		}
+
 		netappsdMaster := new(NetappsdMaster)
 		netappsdMaster.NetAppSD = &netappsd.NetAppSD{
 			NetboxHost:     viper.GetString("netbox_host"),
@@ -28,8 +35,8 @@ var Cmd = &cobra.Command{
 			Namespace:      viper.GetString("pod_namespace"),
 			Region:         viper.GetString("region"),
 			FilerTag:       viper.GetString("tag"),
-			WorkerName:     viper.GetString("worker"),
-			WorkerLabel:    viper.GetString("worker_label"),
+			WorkerName:     workerName,
+			WorkerLabel:    workerLabel,
 			NetAppUsername: viper.GetString("netapp_username"),
 			NetAppPassword: viper.GetString("netapp_password"),
 		}

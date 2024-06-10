@@ -158,15 +158,15 @@ func (n *NetAppSD) discover(ctx context.Context) (int, error) {
 		go func(ctx context.Context, filer *Filer) {
 			defer wg.Done()
 
-			c := netapp.NewFilerClient(filer.Host, n.NetAppUsername, n.NetAppPassword)
+			c := netapp.NewFilerClient(filer.Ip, n.NetAppUsername, n.NetAppPassword)
 
 			if err := c.Probe(ctx); err != nil {
 				n.filerscores[filer.Name]--
-				probeFilerErrors.WithLabelValues(filer.Name, filer.Host).Inc()
-				slog.Warn("probe filer failed", "filer", filer.Name, "host", filer.Host, "error", err)
+				probeFilerErrors.WithLabelValues(filer.Name, filer.Ip).Inc()
+				slog.Warn("probe filer failed", "filer", filer.Name, "host", filer.Ip, "error", err)
 			} else {
 				n.filerscores[filer.Name] = 2
-				discoveredFiler.WithLabelValues(filer.Name, filer.Host).Inc()
+				discoveredFiler.WithLabelValues(filer.Name, filer.Ip).Inc()
 				count.Add(1)
 			}
 		}(ctx, f)
