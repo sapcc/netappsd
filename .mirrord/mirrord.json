@@ -1,0 +1,16 @@
+{
+  "target": {
+    "path": "deploy/netapp-harvest-exporter-manila-master/container/netappsd",
+    "namespace": "infra-monitoring"
+  },
+  "kube_context": "qa-de-1",
+  "feature": {
+    "network": {
+      "incoming": "steal"
+    }
+  },
+  "agent": {
+      "image": "keppel.eu-de-1.cloud.sap/ccloud-ghcr-io-mirror/metalbear-co/mirrord:3.100.1"
+  }
+}
+
