@@ -83,7 +83,7 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			}
-			slog.Info("update worker replicas")
+			slog.Info("updating worker replicas")
 			if err := n.updateWorkerReplica(ctx); err != nil {
 				slog.Error("failed to update worker replicas", "error", err)
 			}
@@ -148,16 +148,18 @@ func (n *NetAppSD) discover(ctx context.Context) (int, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Populate the filer map
+	// Populate the filer map; initialize filerscores for new filers
 	for _, f := range filers {
-		n.filers[f.Name] = (*Filer)(f)
-	}
-
-	// Initialize filerscores for new filers
-	for _, f := range n.filers {
+		if f.Status != "active" {
+			slog.Info("filer is not active", "filer", f.Name, "status", f.Status)
+			continue
+		}
 		if _, ok := n.filerscores[f.Name]; !ok {
+			slog.Info("new filer found", "filer", f.Name)
 			n.filerscores[f.Name] = 2
 		}
+
+		n.filers[f.Name] = (*Filer)(f)
 	}
 
 	// Decrease score for filers not found in netbox
@@ -170,6 +172,7 @@ func (n *NetAppSD) discover(ctx context.Context) (int, error) {
 
 	wg := sync.WaitGroup{}
 	count := atomic.Uint32{}
+	discoveredFiler.Reset()
 
 	for _, f := range n.filers {
 		wg.Add(1)
@@ -177,15 +180,21 @@ func (n *NetAppSD) discover(ctx context.Context) (int, error) {
 		go func(ctx context.Context, filer *Filer) {
 			defer wg.Done()
 
-			c := netapp.NewFilerClient(filer.Ip, n.NetAppUsername, n.NetAppPassword)
+			IpOrHostname := filer.Ip
+			if filer.Ip == "" {
+				slog.Warn("filer ip is empty", "filer", filer.Name)
+				IpOrHostname = filer.Host
+			}
+
+			c := netapp.NewFilerClient(IpOrHostname, n.NetAppUsername, n.NetAppPassword)
 
 			if err := c.Probe(ctx); err != nil {
 				n.filerscores[filer.Name]--
-				probeFilerErrors.WithLabelValues(filer.Name, filer.Ip).Inc()
+				probeFilerErrors.WithLabelValues(filer.Name, filer.Host, filer.Ip).Inc()
 				slog.Warn("probe filer failed", "filer", filer.Name, "host", filer.Ip, "error", err)
 			} else {
 				n.filerscores[filer.Name] = 2
-				discoveredFiler.WithLabelValues(filer.Name, filer.Ip).Inc()
+				discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
 				count.Add(1)
 			}
 		}(ctx, f)
@@ -257,7 +266,7 @@ func (n *NetAppSD) enqueueNewFilers(workermap map[string]struct{}) {
 		if _, found := workermap[filerName]; !found && score == 2 {
 			filer := n.filers[filerName]
 			n.queue = append(n.queue, filer)
-			enqueuedFiler.WithLabelValues(filer.Name, filer.Host).Set(1)
+			enqueuedFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
 			slog.Info("enqueue filer", "filer", filer.Name, "host", filer.Host)
 		}
 	}
@@ -320,16 +329,23 @@ func (n *NetAppSD) retireWorkers(ctx context.Context) (int, error) {
 	retiredWorkers := make(map[string]v1.Pod)
 
 	for _, pod := range workerPods.Items {
-		// worker being deleted
+		// skip worker being deleted
 		if pod.DeletionTimestamp != nil {
 			slog.Info("skip terminating pod", "pod", pod.Name)
 			continue
 		}
 
-		if filerName, found := pod.Labels["filer"]; !found {
+		// retire free workers
+		filerName, found := pod.Labels["filer"]
+		if !found {
 			retiredWorkers[pod.Name] = pod
-		} else if n.getFilerScore(filerName) < 0 {
+			continue
+		}
+
+		// retire workers associated with filers not found in netbox
+		if n.getFilerScore(filerName) < 0 {
 			retiredWorkers[pod.Name] = pod
+			delete(n.filerscores, filerName)
 		}
 	}
 
@@ -341,7 +357,6 @@ func (n *NetAppSD) retireWorkers(ctx context.Context) (int, error) {
 		if filerName, found := pod.Labels["filer"]; !found {
 			slog.Info("set pod annotation", "pod", pod.Name, "annotation", "controller.kubernetes.io/pod-deletion-cost=-999", "filer", "none")
 		} else {
-			delete(n.filerscores, filerName)
 			slog.Info("set pod annotation", "pod", pod.Name, "annotation", "controller.kubernetes.io/pod-deletion-cost=-999", "filer", filerName)
 		}
 	}

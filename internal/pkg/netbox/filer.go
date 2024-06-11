@@ -13,6 +13,7 @@ type Device struct {
 	Host             string `json:"host" yaml:"host"`
 	AvailabilityZone string `json:"availability_zone" yaml:"availability_zone"`
 	Ip               string `json:"ip,omitempty" yaml:"ip,omitempty"`
+	Status           string `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 func (nb Client) GetFilers(region, query string) (filers []*Device, err error) {
@@ -38,12 +39,12 @@ func getFilersByTag(nb Client, region, tag string) ([]*Device, error) {
 	var (
 		roleFiler    = "filer"
 		manufacturer = "netapp"
-		statusActive = "active"
+		// statusActive = "active"
 		interfaces   = "False"
 	)
 	devices, err := nb.FetchDevices(dcim.DcimDevicesListParams{
 		Role:         &roleFiler,
-		Status:       &statusActive,
+		// Status:       &statusActive,
 		Manufacturer: &manufacturer,
 		Interfaces:   &interfaces,
 		Tag:          &tag,
@@ -89,6 +90,7 @@ func makeFilers(nb Client, region string, devices []*models.DeviceWithConfigCont
 					Host:             *d.Name + ".cc." + region + ".cloud.sap",
 					AvailabilityZone: strings.ToLower(*d.Site.Name),
 					Ip:               ip,
+					Status:           *d.Status.Value,
 				})
 			}
 		}

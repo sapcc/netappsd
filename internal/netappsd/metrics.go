@@ -5,20 +5,20 @@ import (
 )
 
 var (
-	discoveredFiler = prometheus.NewCounterVec(prometheus.CounterOpts{
+	discoveredFiler = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "netappsd_discovered_filer",
 		Help: "Filer discovered from netbox.",
-	}, []string{"filer", "filer_host"})
+	}, []string{"filer", "host", "ip"})
 
 	enqueuedFiler = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "netappsd_enqueued_filer",
 		Help: "Filer enqueued to work on.",
-	}, []string{"filer", "filer_host"})
+	}, []string{"filer", "host", "ip"})
 
 	probeFilerErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "netappsd_probe_filer_errors",
 		Help: "Number of errors encountered while probing filer.",
-	}, []string{"filer", "filer_host"})
+	}, []string{"filer", "host", "ip"})
 
 	workerReplicas = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "netappsd_worker_replicas",
