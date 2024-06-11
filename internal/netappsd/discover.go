@@ -62,10 +62,10 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 		for {
 			select {
 			case <-tick.After(5 * time.Minute):
-				if count, err := n.discover(ctx); err != nil {
-					slog.Error("failed to discover filers", "error", err)
+				if totalc, newc, err := n.discover(ctx); err != nil {
+					slog.Error("filer dicovery failed", "error", err)
 				} else {
-					slog.Info("discovered filers", "count", count)
+					slog.Info("filer dicovery done", "total", totalc, "new", newc)
 					discoverCh <- struct{}{}
 				}
 			case <-ctx.Done():
@@ -135,34 +135,30 @@ func (n *NetAppSD) getFilerScore(filerName string) int {
 }
 
 // discover queries netbox for filers and cache the filer list.
-func (n *NetAppSD) discover(ctx context.Context) (int, error) {
+func (n *NetAppSD) discover(ctx context.Context) (int, int, error) {
 	// Initialize the filer map
 	n.filers = make(map[string]*Filer)
 
 	// Get filers from netbox
 	filers, err := n.netboxClient.GetFilers(n.Region, n.FilerTag)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Populate the filer map; initialize filerscores for new filers
+	// Populate the filer map
 	for _, f := range filers {
 		if f.Status != "active" {
 			slog.Info("filer is not active", "filer", f.Name, "status", f.Status)
-			continue
+		} else {
+			n.filers[f.Name] = (*Filer)(f)
 		}
-		if _, ok := n.filerscores[f.Name]; !ok {
-			slog.Info("new filer found", "filer", f.Name)
-			n.filerscores[f.Name] = 2
-		}
-
-		n.filers[f.Name] = (*Filer)(f)
 	}
 
 	// Decrease score for filers not found in netbox
+	// Score is initialized to 2 for new filers, and decreased by 1 for each discovery cycle if not found in netbox.
 	for filerName := range n.filerscores {
 		if _, ok := n.filers[filerName]; !ok {
 			n.filerscores[filerName]--
@@ -171,7 +167,8 @@ func (n *NetAppSD) discover(ctx context.Context) (int, error) {
 	}
 
 	wg := sync.WaitGroup{}
-	count := atomic.Uint32{}
+	countTotal := atomic.Uint32{}
+	countNew := atomic.Uint32{}
 	discoveredFiler.Reset()
 
 	for _, f := range n.filers {
@@ -193,15 +190,19 @@ func (n *NetAppSD) discover(ctx context.Context) (int, error) {
 				probeFilerErrors.WithLabelValues(filer.Name, filer.Host, filer.Ip).Inc()
 				slog.Warn("probe filer failed", "filer", filer.Name, "host", filer.Ip, "error", err)
 			} else {
+				if _, ok := n.filerscores[filer.Name]; !ok {
+					slog.Info("new filer found", "filer", filer.Name)
+					countNew.Add(1)
+				}
 				n.filerscores[filer.Name] = 2
 				discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
-				count.Add(1)
+				countTotal.Add(1)
 			}
 		}(ctx, f)
 	}
 
 	wg.Wait()
-	return int(count.Load()), nil
+	return int(countTotal.Load()), int(countNew.Load()), nil
 }
 
 // updateWorkerReplica updates the worker replicas based on the current state of the system.
