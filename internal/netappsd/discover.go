@@ -167,6 +167,7 @@ func (n *NetAppSD) discover(ctx context.Context) (int, int, error) {
 	}
 
 	wg := sync.WaitGroup{}
+	mu_filerscore := sync.Mutex{}
 	countTotal := atomic.Uint32{}
 	countNew := atomic.Uint32{}
 	discoveredFiler.Reset()
@@ -184,8 +185,10 @@ func (n *NetAppSD) discover(ctx context.Context) (int, int, error) {
 			}
 
 			c := netapp.NewFilerClient(IpOrHostname, n.NetAppUsername, n.NetAppPassword)
+			err := c.Probe(ctx)
 
-			if err := c.Probe(ctx); err != nil {
+			mu_filerscore.Lock()
+			if err != nil {
 				n.filerscores[filer.Name]--
 				probeFilerErrors.WithLabelValues(filer.Name, filer.Host, filer.Ip).Inc()
 				slog.Warn("probe filer failed", "filer", filer.Name, "host", filer.Ip, "error", err)
@@ -198,6 +201,7 @@ func (n *NetAppSD) discover(ctx context.Context) (int, int, error) {
 				discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
 				countTotal.Add(1)
 			}
+			mu_filerscore.Unlock()
 		}(ctx, f)
 	}
 
@@ -340,13 +344,9 @@ func (n *NetAppSD) retireWorkers(ctx context.Context) (int, error) {
 		filerName, found := pod.Labels["filer"]
 		if !found {
 			retiredWorkers[pod.Name] = pod
-			continue
-		}
-
-		// retire workers associated with filers not found in netbox
-		if n.getFilerScore(filerName) < 0 {
+		} else if n.getFilerScore(filerName) < 0 {
+			// retire workers associated with filers not found in netbox
 			retiredWorkers[pod.Name] = pod
-			delete(n.filerscores, filerName)
 		}
 	}
 
