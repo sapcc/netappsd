@@ -267,12 +267,12 @@ func (n *NetAppSD) enqueueNewFilers(workermap map[string]struct{}) {
 	n.queue = make([]*Filer, 0)
 	enqueuedFiler.Reset()
 
-	for filerName, score := range n.filerscores {
+	for filerName, filer := range n.filers {
+		score := n.getFilerScore(filerName)
 		if _, found := workermap[filerName]; !found && score == 2 {
-			filer := n.filers[filerName]
 			n.queue = append(n.queue, filer)
 			enqueuedFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
-			slog.Info("enqueue filer", "filer", filer.Name, "host", filer.Host)
+			slog.Info("enqueue filer", "filer", filer.Name, "host", filer.Host, "ip", filer.Ip)
 		}
 	}
 }
