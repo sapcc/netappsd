@@ -51,7 +51,7 @@ REQUESTFILER:
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.After(10 * time.Second):
+		case <-ticker.Every(10 * time.Second):
 			if err := f.RequestFiler(requestURL); err != nil {
 				slog.Warn("failed to request filer", "error", err.Error())
 			} else {

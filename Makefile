@@ -14,8 +14,8 @@ TEMP_DIR:=$(shell mktemp -d)
 BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 HASH := $(shell git rev-parse HEAD | head -c 7)
 
-IMAGE_NAME:=keppel.eu-de-1.cloud.sap/ccloud/netappsd-$(ARCH)
-IMAGE_TAG?=latest
+IMAGE_NAME:=keppel.eu-de-1.cloud.sap/ccloud/netappsd
+IMAGE_TAG?=$(shell git rev-parse --short HEAD)
 
 all: build manifests
 
