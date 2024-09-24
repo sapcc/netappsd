@@ -32,6 +32,7 @@ type NetAppSD struct {
 
 	filerList        map[string]Filer
 	filerQueue       []Filer
+	lastProbeError   error
 	lastProbeFilerTs SyncMapTimestamp
 
 	netboxClient  *netbox.Client
@@ -82,7 +83,9 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			}
-			if total, err := n.discoverFilers(ctx); err != nil {
+			total, err := n.discoverFilers(ctx)
+			n.lastProbeError = err
+			if err != nil {
 				slog.Warn("filer discovery failed", "error", err)
 			} else {
 				slog.Info("filer discovery done", "total", total)
@@ -192,7 +195,7 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, error) {
 				filerCounter.Add(1)
 				n.lastProbeFilerTs.Store(filer.Name, time.Now().Unix())
 				discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
-				slog.Info("new filer discovered", "filer", filer.Name)
+				slog.Info("probe filer ok", "filer", filer.Name)
 			}
 		}(f)
 	}
@@ -301,6 +304,7 @@ func (n *NetAppSD) updateFilerQueue(filerInWorkers map[string]struct{}) {
 			continue
 		}
 		n.filerQueue = append(n.filerQueue, n.filerList[filerName])
+		slog.Info("enqueue filer", "filer", filerName)
 	}
 }
 
@@ -370,7 +374,7 @@ func (n *NetAppSD) prepareDeletingWorkers(ctx context.Context) (int, error) {
 		}
 		if filerName, hasFilerLabel := pod.Labels["filer"]; hasFilerLabel {
 			lastProbeTime := n.lastProbeFilerTs.LoadTime(filerName)
-			if time.Since(lastProbeTime) > 48*time.Hour {
+			if n.lastProbeError == nil && time.Since(lastProbeTime) > 48*time.Hour {
 				slog.Info("retire old worker", "filer", filerName, "pod", pod.Name, "lastProbeTime", lastProbeTime)
 				if err := n.updatePodDeletionCost(ctx, pod); err != nil {
 					return 0, err
