@@ -165,9 +165,7 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, error) {
 		if f.Status != "active" {
 			slog.Info("filer's status is not active in Netbox", "filer", f.Name, "status", f.Status)
 		} else if _, found := n.filerList[f.Name]; !found {
-			slog.Info("new filer discovered", "filer", f.Name)
 			n.filerList[f.Name] = (Filer)(*f)
-			n.lastFilerProbeTime.Store(f.Name, 0)
 		}
 	}
 
@@ -181,13 +179,17 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, error) {
 		go func(filer Filer) {
 			defer wg.Done()
 
+			ctx, fn := context.WithTimeout(ctx, 60*time.Second)
+			defer fn()
+
 			if err := n.probeFiler(ctx, filer); err != nil {
-				slog.Warn("probe filer failed", "filer", filer.Name, "error", err)
 				probeFilerErrors.WithLabelValues(filer.Name, filer.Host, filer.Ip).Inc()
+				slog.Warn("probe filer failed", "filer", filer.Name, "error", err, "timeout", 60)
 			} else {
 				filerCounter.Add(1)
 				n.lastFilerProbeTime.Store(filer.Name, time.Now().Unix())
 				discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
+				slog.Info("new filer discovered", "filer", filer.Name)
 			}
 		}(f)
 	}
