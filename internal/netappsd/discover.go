@@ -225,8 +225,7 @@ func (n *NetAppSD) updateWorkerReplica(ctx context.Context) error {
 	}
 
 	// update queue
-	newFilers := n.findNewFilers(filerInWorkers)
-	n.filerQueue = append(n.filerQueue, newFilers...)
+	n.updateFilerQueue(filerInWorkers)
 
 	// update filer queue metrics
 	enqueuedFiler.Reset()
@@ -278,12 +277,9 @@ func (n *NetAppSD) getWorkerDetails(ctx context.Context) (int, map[string]struct
 	return freeWorkers, workers, nil
 }
 
-// findNewFilers appends filer queue with filers that are not being worked
-// on. It skips filers that are already in the worker or in the queue. It also
-// skips filers that are not probed in the last 1 hour, as they are considered
-// to be retired.
-func (n *NetAppSD) findNewFilers(filerInWorkers map[string]struct{}) []Filer {
-	newFilers := make([]Filer, 0)
+// updateFilerQueue appends filer queue with filers that are not being worked
+// on. It skips filers that are already in the worker or in the queue.
+func (n *NetAppSD) updateFilerQueue(filerInWorkers map[string]struct{}) {
 	filerInQueue := make(map[string]struct{})
 	for _, filer := range n.filerQueue {
 		filerInQueue[filer.Name] = struct{}{}
@@ -295,13 +291,17 @@ func (n *NetAppSD) findNewFilers(filerInWorkers map[string]struct{}) []Filer {
 		if _, ok := filerInQueue[filerName]; ok {
 			continue
 		}
-		// skip if filer probe is older than 1 hour
-		if time.Since(n.lastProbeFilerTs.LoadTime(filerName)) > 1*time.Hour {
+		// Do not add filer to the queue if it is not probed in the last
+		// 5 minutes. This is to avoid adding filers that are not
+		// reachable. Filers are fetched from Netbox and probed every 5
+		// minutes. And queue is updated every 30 seconds.
+		lastProbeTime := n.lastProbeFilerTs.LoadTime(filerName)
+		if time.Since(lastProbeTime) > 5*time.Minute {
+			slog.Info("skip filer", "filer", filerName, "lastProbeTime", lastProbeTime)
 			continue
 		}
-		newFilers = append(newFilers, n.filerList[filerName])
+		n.filerQueue = append(n.filerQueue, n.filerList[filerName])
 	}
-	return newFilers
 }
 
 func (n *NetAppSD) scaleUpWorkers(ctx context.Context, count int) error {
