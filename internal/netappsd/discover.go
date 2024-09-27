@@ -30,9 +30,9 @@ type NetAppSD struct {
 	NetAppUsername string
 	NetAppPassword string
 
-	lastFilerProbeTime SyncMapTimestamp
-	filerList          map[string]Filer
-	filerQueue         []Filer
+	filerList        map[string]Filer
+	filerQueue       []Filer
+	lastProbeFilerTs SyncMapTimestamp
 
 	netboxClient  *netbox.Client
 	kubeClientset *kubernetes.Clientset
@@ -43,12 +43,9 @@ type SyncMapTimestamp struct {
 	sync.Map
 }
 
-func (m *SyncMapTimestamp) LoadVaule(key string) int64 {
-	v, _ := m.Load(key)
-	if v == nil {
-		return 0
-	}
-	return v.(int64)
+func (m *SyncMapTimestamp) LoadTime(key string) time.Time {
+	v, _ := m.LoadOrStore(key, int64(0))
+	return time.Unix(v.(int64), 0)
 }
 
 func (m *SyncMapTimestamp) Store(key string, value int64) {
@@ -70,7 +67,7 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 		n.kubeClientset = clientset
 	}
 
-	n.lastFilerProbeTime = SyncMapTimestamp{}
+	n.lastProbeFilerTs = SyncMapTimestamp{}
 	n.filerList = make(map[string]Filer)
 	n.filerQueue = make([]Filer, 0)
 	discoveryDone := make(chan struct{})
@@ -164,8 +161,14 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, error) {
 	for _, f := range filers {
 		if f.Status != "active" {
 			slog.Info("filer's status is not active in Netbox", "filer", f.Name, "status", f.Status)
-		} else if _, found := n.filerList[f.Name]; !found {
+			continue
+		}
+		if _, found := n.filerList[f.Name]; !found {
 			n.filerList[f.Name] = (Filer)(*f)
+		}
+		// initialize last probe timestamp for new filers
+		if _, found := n.lastProbeFilerTs.Load(f.Name); !found {
+			n.lastProbeFilerTs.Store(f.Name, 0)
 		}
 	}
 
@@ -187,7 +190,7 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, error) {
 				slog.Warn("probe filer failed", "filer", filer.Name, "error", err, "timeout", 60)
 			} else {
 				filerCounter.Add(1)
-				n.lastFilerProbeTime.Store(filer.Name, time.Now().Unix())
+				n.lastProbeFilerTs.Store(filer.Name, time.Now().Unix())
 				discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
 				slog.Info("new filer discovered", "filer", filer.Name)
 			}
@@ -293,7 +296,7 @@ func (n *NetAppSD) findNewFilers(filerInWorkers map[string]struct{}) []Filer {
 			continue
 		}
 		// skip if filer probe is older than 1 hour
-		if isOlderThan(n.lastFilerProbeTime.LoadVaule(filerName), 3600) {
+		if time.Since(n.lastProbeFilerTs.LoadTime(filerName)) > 1*time.Hour {
 			continue
 		}
 		newFilers = append(newFilers, n.filerList[filerName])
@@ -349,9 +352,8 @@ func (n *NetAppSD) scaleDownWorkers(ctx context.Context, count int) error {
 
 // prepareDeletingWorkers marks the pod by setting the deletion cost to -999 and
 // returns the number of pods marked. It skips the pods that are being deleted.
-// The pods that are associated with filers that are not probed in the last 1
-// hour are marked for deletion. The pods not associated with any observed filer
-// are also marked for deletion.
+// The pods that are associated with filers that are not probed in the last 48
+// hours are marked for deletion.
 func (n *NetAppSD) prepareDeletingWorkers(ctx context.Context) (int, error) {
 	workerPods, err := n.kubeClientset.CoreV1().Pods(n.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: n.WorkerLabel,
@@ -367,8 +369,9 @@ func (n *NetAppSD) prepareDeletingWorkers(ctx context.Context) (int, error) {
 			continue
 		}
 		if filerName, hasFilerLabel := pod.Labels["filer"]; hasFilerLabel {
-			if isOlderThan(n.lastFilerProbeTime.LoadVaule(filerName), 3600) {
-				slog.Info("retire old worker", "filer", filerName, "pod", pod.Name)
+			lastProbeTime := n.lastProbeFilerTs.LoadTime(filerName)
+			if time.Since(lastProbeTime) > 48*time.Hour {
+				slog.Info("retire old worker", "filer", filerName, "pod", pod.Name, "lastProbeTime", lastProbeTime)
 				if err := n.updatePodDeletionCost(ctx, pod); err != nil {
 					return 0, err
 				}
@@ -391,8 +394,4 @@ func (n *NetAppSD) updatePodDeletionCost(ctx context.Context, pod v1.Pod) error 
 		return err
 	}
 	return nil
-}
-
-func isOlderThan(timestamp int64, seconds int64) bool {
-	return (time.Now().Unix() - timestamp) > seconds
 }
