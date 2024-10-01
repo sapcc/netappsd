@@ -83,12 +83,13 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			}
-			total, err := n.discoverFilers(ctx)
-			n.lastProbeError = err
-			if err != nil {
-				slog.Warn("filer discovery failed", "error", err)
+			success := 0
+			failed := 0
+			success, failed, n.lastProbeError = n.discoverFilers(ctx)
+			if n.lastProbeError != nil {
+				slog.Warn("filer discovery failed", "error", n.lastProbeError)
 			} else {
-				slog.Info("filer discovery done", "total", total)
+				slog.Info("filer discovery done", "success", success, "failed", failed)
 				discoveryDone <- struct{}{}
 			}
 		}
@@ -151,57 +152,57 @@ func (n *NetAppSD) IsReady() bool {
 }
 
 // discoverFilers queries netbox for filers and updates their timestamps.
-func (n *NetAppSD) discoverFilers(ctx context.Context) (int, error) {
+func (n *NetAppSD) discoverFilers(ctx context.Context) (int, int, error) {
 	// TODO: Add context to signature of the function
 	filers, err := n.netboxClient.GetFilers(n.Region, n.FilerTag)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
+	// probe filer in parallel
+	wg := sync.WaitGroup{}
+	successCounter := atomic.Int32{}
+	failedCounter := atomic.Int32{}
+	discoveredFiler.Reset()
 
 	for _, f := range filers {
 		if f.Status != "active" {
 			slog.Info("filer's status is not active in Netbox", "filer", f.Name, "status", f.Status)
 			continue
 		}
-		if _, found := n.filerList[f.Name]; !found {
-			n.filerList[f.Name] = (Filer)(*f)
-		}
-		// initialize last probe timestamp for new filers
-		if _, found := n.lastProbeFilerTs.Load(f.Name); !found {
-			n.lastProbeFilerTs.Store(f.Name, 0)
-		}
-	}
 
-	wg := sync.WaitGroup{}
-	filerCounter := atomic.Int32{}
-	discoveredFiler.Reset()
-
-	for _, f := range n.filerList {
 		wg.Add(1)
 
 		go func(filer Filer) {
-			defer wg.Done()
-
 			ctx, fn := context.WithTimeout(ctx, 60*time.Second)
 			defer fn()
+			defer wg.Done()
 
 			if err := n.probeFiler(ctx, filer); err != nil {
+				failedCounter.Add(1)
 				probeFilerErrors.WithLabelValues(filer.Name, filer.Host, filer.Ip).Inc()
 				slog.Warn("probe filer failed", "filer", filer.Name, "error", err, "timeout", 60)
-			} else {
-				filerCounter.Add(1)
-				n.lastProbeFilerTs.Store(filer.Name, time.Now().Unix())
-				discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
-				slog.Info("probe filer ok", "filer", filer.Name)
+				return
 			}
-		}(f)
+
+			successCounter.Add(1)
+			discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
+			slog.Info("probe filer ok", "filer", filer.Name)
+
+			// initialize filer list if not exists
+			if _, found := n.filerList[filer.Name]; !found {
+				n.filerList[filer.Name] = filer
+			}
+			// update filer probing timestamp
+			n.lastProbeFilerTs.Store(filer.Name, time.Now().Unix())
+		}(Filer(*f))
 	}
 
 	wg.Wait()
-	return int(filerCounter.Load()), nil
+	return int(successCounter.Load()), int(failedCounter.Load()), nil
 }
 
 func (n *NetAppSD) probeFiler(ctx context.Context, filer Filer) error {
