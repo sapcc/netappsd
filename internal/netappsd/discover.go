@@ -120,23 +120,20 @@ func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*Filer, error
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	// Remove filer label; pod restart may leave stale request. Filer request implies no active work.
+	if err := n.clearFilerLabelForPod(ctx, podName); err != nil {
+		return nil, err
+	}
+
 	if len(n.filerQueue) == 0 {
 		return nil, fmt.Errorf("no filer to work on")
 	}
+
+	// Set filer label; remove filer from queue on success.
 	nextFiler := n.filerQueue[0]
-
-	// set filer label on the worker pod
-	if pod, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Get(ctx, podName, metav1.GetOptions{}); err != nil {
-		return nil, fmt.Errorf("failed to get pod: %s", err)
-	} else {
-		slog.Info("set pod label", "filer", nextFiler.Name, "pod", podName)
-		pod.Labels["filer"] = nextFiler.Name
-		if _, err = n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, pod, metav1.UpdateOptions{}); err != nil {
-			return nil, fmt.Errorf("failed to update pod: %s", err)
-		}
+	if err := n.setFilerLabelForPod(ctx, podName, nextFiler.Name); err != nil {
+		return nil, err
 	}
-
-	// remove the filer from the queue only if the pod label is set successfully
 	n.filerQueue = n.filerQueue[1:]
 
 	enqueuedFiler.Reset()
@@ -145,6 +142,36 @@ func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*Filer, error
 	}
 	slog.Info("next filer for worker", "filer", nextFiler.Name, "pod", podName)
 	return &nextFiler, nil
+}
+
+func (n *NetAppSD) setFilerLabelForPod(ctx context.Context, podName, value string) error {
+	pod, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get pod: %s", err)
+	}
+	slog.Info("set pod label", "filer", value, "pod", podName)
+	pod.Labels["filer"] = value
+	_, err = n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, pod, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update pod: %s", err)
+	}
+	return nil
+}
+
+func (n *NetAppSD) clearFilerLabelForPod(ctx context.Context, podName string) error {
+	pod, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get pod: %s", err)
+	}
+	if _, found := pod.Labels["filer"]; found {
+		slog.Info("delete filer label from pod", "pod", podName)
+		delete(pod.Labels, "filer")
+		_, err = n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, pod, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update pod: %s", err)
+		}
+	}
+	return nil
 }
 
 func (n *NetAppSD) IsReady() bool {
@@ -184,16 +211,16 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, int, error) {
 			if err := n.probeFiler(ctx, filer); err != nil {
 				failedCounter.Add(1)
 				probeFilerErrors.WithLabelValues(filer.Name, filer.Host, filer.Ip).Inc()
-				slog.Warn("probe filer failed", "filer", filer.Name, "error", err, "timeout", 60)
+				slog.Warn("filer probe failed", "filer", filer.Name, "error", err, "timeout", 60)
 				return
 			}
 
 			successCounter.Add(1)
 			discoveredFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
-			slog.Info("probe filer ok", "filer", filer.Name)
 
 			// initialize filer list if not exists
 			if _, found := n.filerList[filer.Name]; !found {
+				slog.Info("new filer discovered", "filer", filer.Name)
 				n.filerList[filer.Name] = filer
 			}
 			// update filer probing timestamp
