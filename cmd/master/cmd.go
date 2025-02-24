@@ -22,6 +22,12 @@ var Cmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, _ []string) {
 		ctx := httpext.ContextWithSIGINT(context.Background(), 0)
 
+		// set debug log level for slog
+		l := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+		slog.SetDefault(l)
+
 		workerName := viper.GetString("worker")
 		workerLabel := viper.GetString("worker_label")
 		if workerLabel == "" {

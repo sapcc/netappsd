@@ -34,6 +34,7 @@ type NetAppSD struct {
 	filerQueue       []Filer
 	lastProbeError   error
 	lastProbeFilerTs SyncMapTimestamp
+	inactiveFilers   map[string]struct{}
 
 	netboxClient  *netbox.Client
 	kubeClientset *kubernetes.Clientset
@@ -72,6 +73,7 @@ func (n *NetAppSD) Run(ctx context.Context) error {
 	n.filerList = make(map[string]Filer)
 	n.filerQueue = make([]Filer, 0)
 	discoveryDone := make(chan struct{})
+	n.inactiveFilers = make(map[string]struct{})
 
 	go func() {
 		defer close(discoveryDone)
@@ -136,6 +138,7 @@ func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*Filer, error
 	}
 	n.filerQueue = n.filerQueue[1:]
 
+	// Update enqueued filer metrics
 	enqueuedFiler.Reset()
 	for _, filer := range n.filerQueue {
 		enqueuedFiler.WithLabelValues(filer.Name, filer.Host, filer.Ip).Set(1)
@@ -197,8 +200,11 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, int, error) {
 
 	for _, f := range filers {
 		if f.Status != "active" {
+			n.inactiveFilers[f.Name] = struct{}{}
 			slog.Info("filer's status is not active in Netbox", "filer", f.Name, "status", f.Status)
 			continue
+		} else {
+			delete(n.inactiveFilers, f.Name)
 		}
 
 		wg.Add(1)
@@ -235,9 +241,9 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, int, error) {
 func (n *NetAppSD) probeFiler(ctx context.Context, filer Filer) error {
 	filerAddress := filer.Ip
 	if filer.Ip == "" {
-		slog.Info("filer ip is empty", "filer", filer.Name)
 		filerAddress = filer.Host
 	}
+	slog.Debug("probing filer", "filer", filer.Name, "addr", filerAddress)
 	c := netapp.NewFilerClient(filerAddress, n.NetAppUsername, n.NetAppPassword)
 	return c.Probe(ctx)
 }
@@ -401,9 +407,18 @@ func (n *NetAppSD) prepareDeletingWorkers(ctx context.Context) (int, error) {
 			continue
 		}
 		if filerName, hasFilerLabel := pod.Labels["filer"]; hasFilerLabel {
-			lastProbeTime := n.lastProbeFilerTs.LoadTime(filerName)
-			if n.lastProbeError == nil && time.Since(lastProbeTime) > 48*time.Hour {
-				slog.Info("retire old worker", "filer", filerName, "pod", pod.Name, "lastProbeTime", lastProbeTime)
+			retire := false
+			if _, found := n.inactiveFilers[filerName]; found {
+				slog.Info("retire inactive worker", "filer", filerName, "pod", pod.Name)
+				retire = true
+			} else {
+				lastProbeTime := n.lastProbeFilerTs.LoadTime(filerName)
+				if n.lastProbeError == nil && time.Since(lastProbeTime) > 48*time.Hour {
+					slog.Info("retire old worker", "filer", filerName, "pod", pod.Name, "lastProbeTime", lastProbeTime)
+					retire = true
+				}
+			}
+			if retire {
 				if err := n.updatePodDeletionCost(ctx, pod); err != nil {
 					return 0, err
 				}
