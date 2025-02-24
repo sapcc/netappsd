@@ -27,10 +27,7 @@ spec:
             - --tag
             - cinder
             - --worker
-            - netappsd-worker
-            - --worker-label
-            - app=netappsd-worker
-            - --debug
+            - netapp-harvest-exporter-cinder-worker
           resources:
             requests:
               cpu: 100m

@@ -24,7 +24,6 @@ spec:
       containers:
         - name: poller
           image: keppel.eu-de-1.cloud.sap/ccloud-dockerhub-mirror/rahulguptajss/harvest:23.11.0-1
-          # image: keppel.eu-de-1.cloud.sap/ccloud-cr-netapp-io-mirror/harvest:23.11.0-1
           imagePullPolicy: IfNotPresent
           command: ["/busybox/sh", "/opt/harvest/start_poller.sh"]
           ports:
@@ -68,7 +67,7 @@ spec:
             - http://netappsd-master.netapp-exporters.svc:8080
             - --template-file
             - /app/harvest.yaml.tpl
-            - --output-path
+            - --output-file
             - /app/shared
             - --debug
           resources:
