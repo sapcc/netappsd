@@ -15,7 +15,7 @@ The process for assigning a filer to a worker:
 ## Usage
 
 ### Master
-
+```
 Usage:
   netappsd master [flags]
 
@@ -31,9 +31,10 @@ Flags:
 
 Global Flags:
   -d, --debug   Enable debug logging
+```
 
 ### Worker
-
+```
 Usage:
   netappsd worker [flags]
 
@@ -46,4 +47,4 @@ Flags:
 
 Global Flags:
   -d, --debug   Enable debug logging
-
+```
