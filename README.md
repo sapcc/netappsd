@@ -1,8 +1,14 @@
 ## NetAppSD
 
-NetAppSD discovers NetApp filers from Netbox and provides them as scraping targets for NetApp harvest exporters running in a Kubernetes cluster.
+NetAppSD is an automatic scaler for NetApp's Harvest exporters running in a
+Kubernetes cluster. It discovers NetApp filers from Netbox and starts an
+exporter instance for each of them.
 
-NetAppSD operates in either master or worker modes. The master node is responsible for discovering NetApp filers and monitoring the worker pods. The worker node runs as a sidecar in the NetApp harvest pod, fetching the filer to scrape from the master's endpoint "/next/filer" for the harvest exporter.
+NetAppSD operates in two modes: master and worker. The master node is
+responsible for discovering NetApp filers and monitoring the worker pods. It
+also scales the number of worker pods to match the discovered filers. The
+worker node runs as a sidecar in the NetApp Harvest pod, fetching the filer to
+scrape from the master's endpoint "/next/filer" for the Harvest exporter.
 
 The process for assigning a filer to a worker:
 
