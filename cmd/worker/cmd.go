@@ -13,8 +13,6 @@ import (
 	"github.com/sapcc/netappsd/internal/pkg/utils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -69,18 +67,4 @@ REQUESTFILER:
 	mux := http.NewServeMux()
 	mux.Handle("/", httpapi.Compose(f))
 	must.Succeed(httpext.ListenAndServeContext(ctx, httpListenAddr, mux))
-}
-
-func setPodLabel(ctx context.Context, namespace, podName, labelKey, labelValue string) error {
-	kubeclientset, err := utils.NewKubeClient()
-	if err != nil {
-		return err
-	}
-	pod, err := kubeclientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	pod.Labels[labelKey] = labelValue
-	_, err = kubeclientset.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
-	return err
 }

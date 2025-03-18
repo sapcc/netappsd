@@ -68,7 +68,7 @@ func init() {
 	Cmd.Flags().StringP("netbox-token", "", "", "The token to authenticate against netbox")
 	Cmd.Flags().StringP("region", "r", "", "The region to filter netbox devices")
 	Cmd.Flags().StringP("tag", "t", "", "The tag to filter netbox devices")
-	Cmd.Flags().StringP("worker", "w", "", "The deployemnt name of workers")
+	Cmd.Flags().StringP("worker", "w", "", "The deployment name of workers")
 	Cmd.Flags().StringP("worker-label", "", "", "The label of worker pods")
 
 	viper.BindPFlag("listen_addr", Cmd.Flags().Lookup("listen-addr"))
