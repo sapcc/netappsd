@@ -18,5 +18,6 @@ RUN go build -v -o /netappsd ./cmd
 # --------
 
 FROM alpine:3.18
+LABEL source_repository="https://github.com/sapcc/netappsd.git"
 COPY --from=builder netappsd /
 ENTRYPOINT [ "/netappsd" ]
