@@ -17,7 +17,7 @@ import (
 	"github.com/sapcc/netappsd/internal/pkg/utils"
 )
 
-type Filer netbox.Device
+type Filer netbox.Filer
 
 type NetAppSD struct {
 	NetboxHost     string
@@ -183,8 +183,7 @@ func (n *NetAppSD) IsReady() bool {
 
 // discoverFilers queries netbox for filers and updates their timestamps.
 func (n *NetAppSD) discoverFilers(ctx context.Context) (int, int, error) {
-	// TODO: Add context to signature of the function
-	filers, err := n.netboxClient.GetFilers(n.Region, n.FilerTag)
+	filers, err := n.netboxClient.GetFilers(ctx, n.Region, n.FilerTag)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -231,7 +230,7 @@ func (n *NetAppSD) discoverFilers(ctx context.Context) (int, int, error) {
 			}
 			// update filer probing timestamp
 			n.lastProbeFilerTs.Store(filer.Name, time.Now().Unix())
-		}(Filer(*f))
+		}(Filer(f))
 	}
 
 	wg.Wait()
