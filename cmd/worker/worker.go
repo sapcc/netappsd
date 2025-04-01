@@ -16,7 +16,7 @@ import (
 
 type NetappsdWorker struct {
 	FilerClient *netapp.FilerClient
-	netbox.Device
+	netbox.Filer
 }
 
 func (f *NetappsdWorker) RequestFiler(url string) error {
