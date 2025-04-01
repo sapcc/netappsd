@@ -12,5 +12,6 @@ debug
 filers.yaml
 example.yaml
 # *.yaml.tpl
+netbox
 
 

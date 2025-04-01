@@ -108,7 +108,7 @@ func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, err
 		netappFilers = append(netappFilers, Filer{
 			Name:             deviceName,
 			Host:             fmt.Sprintf("%s.cc.%s.cloud.sap", deviceName, region),
-			Ip:               deviceIp,
+			Ip:               strings.Split(deviceIp, "/")[0],
 			Status:           deviceStatus,
 			AvailabilityZone: deviceAZ,
 		})
@@ -173,7 +173,7 @@ func (c Client) getManilaFilerClusters(ctx context.Context, region string) ([]Fi
 		filers = append(filers, Filer{
 			Name:             clusterName,
 			Host:             fmt.Sprintf("%s.cc.%s.cloud.sap", clusterName, region),
-			Ip:               clusterIpAddr,
+			Ip:               strings.Split(clusterIpAddr, "/")[0],
 			Status:           clusterStatus,
 			AvailabilityZone: clusterSite,
 		})
