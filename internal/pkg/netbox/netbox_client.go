@@ -91,7 +91,7 @@ func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, err
 			return nil, err
 		}
 		for _, deviceBay := range bays.Results {
-			if deviceBay.InstalledDevice.IsSet() {
+			if deviceBay.InstalledDevice.IsSet() && deviceBay.InstalledDevice.Get() != nil {
 				installedDevice, _, err := c.DcimAPI.DcimDevicesRetrieve(ctx, deviceBay.InstalledDevice.Get().Id).Execute()
 				if err != nil {
 					return nil, err

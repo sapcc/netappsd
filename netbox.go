@@ -25,7 +25,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	filers, err := client.GetFilers(ctx, "eu-de-1", "manila")
+	filers, err := client.GetFilers(ctx, "qa-de-1", "manila")
 	if err != nil {
 		panic(err)
 	}
