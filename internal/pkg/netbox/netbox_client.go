@@ -70,6 +70,7 @@ func (c Client) getFilers(ctx context.Context, region string, tags ...string) ([
 		deviceAZ := ""
 		deviceIp := ""
 		deviceStatus := ""
+		deviceFacility := ""
 
 		if name, ok := device.GetNameOk(); ok {
 			deviceName = *name
@@ -82,7 +83,6 @@ func (c Client) getFilers(ctx context.Context, region string, tags ...string) ([
 				deviceStatus = string(*val)
 			}
 		}
-
 		// Primary ip address is not set on the filer, but on the first node
 		bays, _, err := c.DcimAPI.DcimDeviceBaysList(ctx).
 			DeviceId([]int32{device.Id}).
@@ -105,12 +105,25 @@ func (c Client) getFilers(ctx context.Context, region string, tags ...string) ([
 			}
 		}
 
+		if device.Site.Id != 0 {
+			site, _, err := c.DcimAPI.DcimSitesRetrieve(ctx, device.Site.Id).Execute()
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch site for device %s: %w", deviceName, err)
+			}
+
+			// Safely extract the Facility name using v4 getters
+			if facility, ok := site.GetFacilityOk(); ok && facility != nil {
+				deviceFacility = *facility
+			}
+		}
+
 		netappFilers = append(netappFilers, Filer{
 			Name:             deviceName,
 			Host:             fmt.Sprintf("%s.cc.%s.cloud.sap", deviceName, region),
 			Ip:               strings.Split(deviceIp, "/")[0],
 			Status:           deviceStatus,
 			AvailabilityZone: deviceAZ,
+			Facility:         deviceFacility,
 		})
 	}
 

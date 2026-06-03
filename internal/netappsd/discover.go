@@ -242,7 +242,7 @@ func (n *NetAppSD) probeFiler(ctx context.Context, filer Filer) error {
 	if filer.Ip == "" {
 		filerAddress = filer.Host
 	}
-	slog.Debug("probing filer", "filer", filer.Name, "addr", filerAddress)
+	slog.Debug("probing filer", "filer", filer.Name, "addr", filerAddress, "facility", filer.Facility)
 	c := netapp.NewFilerClient(filerAddress, n.NetAppUsername, n.NetAppPassword)
 	return c.Probe(ctx)
 }
