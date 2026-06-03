@@ -38,7 +38,7 @@ func (c Client) getNetAppFilers(ctx context.Context, region, tag string) ([]File
 // from the first node of the filer.
 //
 // EG https://netbox.global.cloud.sap/dcim/devices/?region_id=19&role_id=13&manufacturer_id=11&tenant_id=1&interfaces=False
-func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, error) {
+func (c Client) getFilers(ctx context.Context, region string, tags ...string) ([]Filer, error) {
 	netappFilers := make([]Filer, 0)
 	devices := make([]netbox.DeviceWithConfigContext, 0)
 
@@ -50,7 +50,7 @@ func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, err
 			Role([]string{"filer"}).
 			Manufacturer([]string{"netapp"}).
 			Region([]string{region}).
-			Tag([]string{tag}).
+			Tag(tags).
 			Interfaces(false).
 			Limit(limit).
 			Offset(offset).
