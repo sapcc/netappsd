@@ -10,25 +10,19 @@ var (
 		Help: "Filer discovered from netbox.",
 	}, []string{"filer", "host", "ip"})
 
-	enqueuedFiler = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "netappsd_enqueued_filer",
-		Help: "Filer enqueued to work on.",
+	managedDeployments = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "netappsd_managed_deployments",
+		Help: "Filer deployments managed by netappsd.",
 	}, []string{"filer", "host", "ip"})
 
 	probeFilerErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "netappsd_probe_filer_errors",
 		Help: "Number of errors encountered while probing filer.",
 	}, []string{"filer", "host", "ip"})
-
-	workerReplicas = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "netappsd_worker_replicas",
-		Help: "Number of worker replicas.",
-	}, []string{})
 )
 
 func init() {
 	prometheus.MustRegister(discoveredFiler)
-	prometheus.MustRegister(enqueuedFiler)
+	prometheus.MustRegister(managedDeployments)
 	prometheus.MustRegister(probeFilerErrors)
-	prometheus.MustRegister(workerReplicas)
 }

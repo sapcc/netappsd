@@ -20,6 +20,7 @@ var (
 	masterUrl        string
 	outputFilePath   string
 	templateFilePath string
+	filerName        string
 )
 
 var Cmd = &cobra.Command{
@@ -34,14 +35,23 @@ func init() {
 	Cmd.Flags().StringVarP(&httpListenAddr, "listen-addr", "l", ":8082", "The address to listen on")
 	Cmd.Flags().StringVarP(&outputFilePath, "output-file", "o", "harvest.yaml", "The path to the output file")
 	Cmd.Flags().StringVarP(&templateFilePath, "template-file", "t", "harvest.yaml.tpl", "The path to the template file")
+	Cmd.Flags().StringVarP(&filerName, "filer-name", "f", "", "The name of the filer to export (defaults to FILER_NAME env)")
 }
 
 func run(cmd *cobra.Command, args []string) {
 	slog.Info("Starting netappsd worker")
 	f := new(NetappsdWorker)
 
+	if filerName == "" {
+		filerName = viper.GetString("filer_name")
+	}
+	if filerName == "" {
+		slog.Error("no filer name provided; set --filer-name or FILER_NAME")
+		os.Exit(1)
+	}
+
 	ctx := httpext.ContextWithSIGINT(context.Background(), 0)
-	requestURL := masterUrl + "/next/filer?pod=" + viper.GetString("pod_name")
+	requestURL := masterUrl + "/filer/" + filerName
 	ticker := new(utils.TickTick)
 
 REQUESTFILER:

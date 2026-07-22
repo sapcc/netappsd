@@ -15,15 +15,9 @@ metadata:
   name: netappsd
   namespace: netapp-exporters
 rules:
-  - apiGroups: [""]
-    resources: ["endpoints"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "update", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "update", "patch"]
+    verbs: ["get", "list", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -49,5 +43,38 @@ data:
   netboxToken: {{ .Env.NETBOX_TOKEN | base64.Encode }}
   netappUsername: {{ .Env.NETAPP_USERNAME | base64.Encode }}
   netappPassword: {{ .Env.NETAPP_PASSWORD | base64.Encode }}
+---
+# Helm pre-delete hook: on `helm uninstall`, delete the per-filer deployments
+# that the master created at runtime. Helm does not track these (they are not
+# part of the chart), so without this hook they would be orphaned. Runs as a
+# short-lived Job before the rest of the release is removed.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: netappsd-cleanup
+  namespace: netapp-exporters
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      name: netappsd-cleanup
+    spec:
+      serviceAccountName: netappsd
+      restartPolicy: Never
+      containers:
+        - name: cleanup
+          image: keppel.eu-de-1.cloud.sap/ccloud-registry-k8s-io-mirror/kubectl:v.1.36.1
+          command:
+            - kubectl
+            - delete
+            - deployments
+            - --namespace
+            - netapp-exporters
+            - --selector
+            - app.kubernetes.io/managed-by=netappsd
+            - --ignore-not-found
 ---
 
