@@ -2,7 +2,6 @@ package master
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -28,27 +27,21 @@ var Cmd = &cobra.Command{
 		}))
 		slog.SetDefault(l)
 
-		workerName := viper.GetString("worker")
-		workerLabel := viper.GetString("worker_label")
-		if workerLabel == "" {
-			workerLabel = fmt.Sprintf("name=%s", workerName)
-		}
-
 		netappsdMaster := new(NetappsdMaster)
 		netappsdMaster.NetAppSD = &netappsd.NetAppSD{
-			NetboxHost:     viper.GetString("netbox_host"),
-			NetboxToken:    viper.GetString("netbox_token"),
-			Namespace:      viper.GetString("pod_namespace"),
-			Region:         viper.GetString("region"),
-			FilerTag:       viper.GetString("tag"),
-			WorkerName:     workerName,
-			WorkerLabel:    workerLabel,
-			NetAppUsername: viper.GetString("netapp_username"),
-			NetAppPassword: viper.GetString("netapp_password"),
+			NetboxHost:         viper.GetString("netbox_host"),
+			NetboxToken:        viper.GetString("netbox_token"),
+			Namespace:          viper.GetString("pod_namespace"),
+			Region:             viper.GetString("region"),
+			FilerTag:           viper.GetString("tag"),
+			ManagedLabel:       viper.GetString("managed_label"),
+			DeploymentTemplate: viper.GetString("deployment_template"),
+			NetAppUsername:     viper.GetString("netapp_username"),
+			NetAppPassword:     viper.GetString("netapp_password"),
 		}
 
 		slog.Info("starting netappsd master")
-		slog.Info("netappsd master config", "region", netappsdMaster.Region, "tag", netappsdMaster.FilerTag, "worker", netappsdMaster.WorkerName)
+		slog.Info("netappsd master config", "region", netappsdMaster.Region, "tag", netappsdMaster.FilerTag, "managedLabel", netappsdMaster.ManagedLabel)
 
 		if err := netappsdMaster.Run(ctx); err != nil {
 			slog.Error(err.Error())
@@ -68,14 +61,14 @@ func init() {
 	Cmd.Flags().StringP("netbox-token", "", "", "The token to authenticate against netbox")
 	Cmd.Flags().StringP("region", "r", "", "The region to filter netbox devices")
 	Cmd.Flags().StringP("tag", "t", "", "The tag to filter netbox devices")
-	Cmd.Flags().StringP("worker", "w", "", "The deployment name of workers")
-	Cmd.Flags().StringP("worker-label", "", "", "The label of worker pods")
+	Cmd.Flags().StringP("deployment-template", "", "/etc/netappsd/deployment.yaml.tpl", "The path to the per-filer deployment template")
+	Cmd.Flags().StringP("managed-label", "", "app.kubernetes.io/managed-by=netappsd", "The label used to identify deployments managed by netappsd")
 
 	viper.BindPFlag("listen_addr", Cmd.Flags().Lookup("listen-addr"))
 	viper.BindPFlag("netbox_host", Cmd.Flags().Lookup("netbox-host"))
 	viper.BindPFlag("netbox_token", Cmd.Flags().Lookup("netbox-token"))
 	viper.BindPFlag("tag", Cmd.Flags().Lookup("tag"))
 	viper.BindPFlag("region", Cmd.Flags().Lookup("region"))
-	viper.BindPFlag("worker", Cmd.Flags().Lookup("worker"))
-	viper.BindPFlag("worker_label", Cmd.Flags().Lookup("worker-label"))
+	viper.BindPFlag("deployment_template", Cmd.Flags().Lookup("deployment-template"))
+	viper.BindPFlag("managed_label", Cmd.Flags().Lookup("managed-label"))
 }

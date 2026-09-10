@@ -12,10 +12,12 @@ GOPATH:=$(shell go env GOPATH)
 OUT_DIR?=_output
 TEMP_DIR:=$(shell mktemp -d)
 BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
+BRANCH_TAG := $(shell printf '%s' "$(BRANCH)" | tr '/_' '--')
 HASH := $(shell git rev-parse HEAD | head -c 7)
 
 IMAGE_NAME:=keppel.eu-de-1.cloud.sap/ccloud/netappsd
-IMAGE_TAG?=$(shell git rev-parse --short HEAD)
+IMAGE_TAG?=$(shell date +%Y%m%d%H%M%S)
+IMAGE_REF_TAG?=$(BRANCH_TAG)-$(IMAGE_TAG)
 
 all: build manifests
 
@@ -28,8 +30,8 @@ image: $(OUT_DIR)/amd64/netappsd
 	cp deployments/Dockerfile $(TEMP_DIR)
 	cp $(OUT_DIR)/$(ARCH)/netappsd $(TEMP_DIR)/netappsd
 	cd $(TEMP_DIR) && sed -i.bak "s|BASEIMAGE|scratch|g" Dockerfile
-	docker build --platform $(OS)/$(ARCH) -t $(IMAGE_NAME):$(IMAGE_TAG) $(TEMP_DIR)
-	docker push $(IMAGE_NAME):$(IMAGE_TAG)
+	docker build --platform $(OS)/$(ARCH) -t $(IMAGE_NAME):$(IMAGE_REF_TAG) $(TEMP_DIR)
+	docker push $(IMAGE_NAME):$(IMAGE_REF_TAG)
 
 $(OUT_DIR)/$(ARCH)/netappsd: $(GOFILES)
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build -o $@ ./cmd

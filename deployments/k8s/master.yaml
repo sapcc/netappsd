@@ -26,8 +26,8 @@ spec:
             - qa-de-1
             - --tag
             - cinder
-            - --worker
-            - netapp-harvest-exporter-cinder-worker
+            - --deployment-template
+            - /etc/netappsd/deployment.yaml.tpl
           resources:
             requests:
               cpu: 100m
@@ -60,6 +60,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+          volumeMounts:
+            - name: deployment-template
+              mountPath: /etc/netappsd
+      volumes:
+        - name: deployment-template
+          configMap:
+            name: netappsd-deployment-template
 ---
 apiVersion: v1
 kind: Service

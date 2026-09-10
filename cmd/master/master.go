@@ -2,7 +2,6 @@ package master
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/sapcc/go-bits/respondwith"
@@ -14,28 +13,19 @@ type NetappsdMaster struct {
 }
 
 // AddTo implements the go-bits/httpapi.API interface. It registers the handler
-// for the /next/filer.json endpoint, which returns the next filer to be
-// worked on. It also registers the /healthz endpoint, which is used by the
-// Kubernetes readiness/liveness probe.
+// for the /filer/{name} endpoint, which returns the requested filer's details.
+// It also registers the /healthz endpoint, which is used by the Kubernetes
+// readiness/liveness probe.
 func (n *NetappsdMaster) AddTo(r *mux.Router) {
-	// next filer endpoint
+	// filer details endpoint
 	r.Methods("GET").
-		Path("/next/filer").
+		Path("/filer/{name}").
 		HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			podname := r.URL.Query().Get("pod")
-			if podname == "" {
-				respondwith.JSON(w, http.StatusBadRequest, "missing pod parameter")
-				return
-			}
-			if !n.IsValidPodName(podname) {
-				respondwith.JSON(w, http.StatusBadRequest, "invalid pod name")
-				return
-			}
-			if filer, err := n.NextFiler(ctx, podname); err != nil {
-				respondwith.ErrorText(w, err)
+			name := mux.Vars(r)["name"]
+			if filer, found := n.GetFiler(name); found {
+				respondwith.JSON(w, http.StatusOK, filer)
 			} else {
-				respondwith.JSON(w, 200, filer)
+				respondwith.JSON(w, http.StatusNotFound, "filer not found")
 			}
 		})
 
@@ -49,8 +39,4 @@ func (n *NetappsdMaster) AddTo(r *mux.Router) {
 				respondwith.JSON(w, http.StatusOK, "OK")
 			}
 		})
-}
-
-func (n *NetappsdMaster) IsValidPodName(podname string) bool {
-	return strings.Contains(podname, "-")
 }

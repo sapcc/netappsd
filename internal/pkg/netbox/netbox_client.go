@@ -38,7 +38,7 @@ func (c Client) getNetAppFilers(ctx context.Context, region, tag string) ([]File
 // from the first node of the filer.
 //
 // EG https://netbox.global.cloud.sap/dcim/devices/?region_id=19&role_id=13&manufacturer_id=11&tenant_id=1&interfaces=False
-func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, error) {
+func (c Client) getFilers(ctx context.Context, region string, tags ...string) ([]Filer, error) {
 	netappFilers := make([]Filer, 0)
 	devices := make([]netbox.DeviceWithConfigContext, 0)
 
@@ -50,7 +50,7 @@ func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, err
 			Role([]string{"filer"}).
 			Manufacturer([]string{"netapp"}).
 			Region([]string{region}).
-			Tag([]string{tag}).
+			Tag(tags).
 			Interfaces(false).
 			Limit(limit).
 			Offset(offset).
@@ -70,6 +70,7 @@ func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, err
 		deviceAZ := ""
 		deviceIp := ""
 		deviceStatus := ""
+		deviceFacility := ""
 
 		if name, ok := device.GetNameOk(); ok {
 			deviceName = *name
@@ -82,7 +83,6 @@ func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, err
 				deviceStatus = string(*val)
 			}
 		}
-
 		// Primary ip address is not set on the filer, but on the first node
 		bays, _, err := c.DcimAPI.DcimDeviceBaysList(ctx).
 			DeviceId([]int32{device.Id}).
@@ -105,12 +105,25 @@ func (c Client) getFilers(ctx context.Context, region, tag string) ([]Filer, err
 			}
 		}
 
+		if device.Site.Id != 0 {
+			site, _, err := c.DcimAPI.DcimSitesRetrieve(ctx, device.Site.Id).Execute()
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch site for device %s: %w", deviceName, err)
+			}
+
+			// Safely extract the Facility name using v4 getters
+			if facility, ok := site.GetFacilityOk(); ok && facility != nil {
+				deviceFacility = *facility
+			}
+		}
+
 		netappFilers = append(netappFilers, Filer{
 			Name:             deviceName,
 			Host:             fmt.Sprintf("%s.cc.%s.cloud.sap", deviceName, region),
 			Ip:               strings.Split(deviceIp, "/")[0],
 			Status:           deviceStatus,
 			AvailabilityZone: deviceAZ,
+			Facility:         deviceFacility,
 		})
 	}
 
