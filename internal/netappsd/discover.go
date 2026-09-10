@@ -39,6 +39,11 @@ const filerLabelKey = "netappsd/filer"
 // each other's Deployments even though they share the managed-by label.
 const serviceLabelKey = "netappsd/service"
 
+// azLabelKey is the label key set on each managed worker pod holding the
+// filer's availability zone (e.g. "eu-de-1a"). It lets a PodMonitor select
+// pods by AZ so Prometheus can be functionally sharded per (service, AZ).
+const azLabelKey = "netappsd/availability-zone"
+
 // specHashKey is the annotation key holding a hash of the rendered Deployment
 // spec. It lets reconciliation detect when the template (ConfigMap) changed and
 // update existing Deployments accordingly.
@@ -465,6 +470,13 @@ func (n *NetAppSD) buildDeployment(filer Filer) (*appsv1.Deployment, error) {
 	}
 	setLabels(&dep.Spec.Selector.MatchLabels, managedKey, managedVal, filer.Name, n.FilerTag)
 
+	// AZ is a pod-template + metadata label only, deliberately NOT part of the
+	// Deployment selector: selectors are immutable, and a filer's AZ can change.
+	if az := filer.AvailabilityZone; az != "" {
+		setAZLabel(&dep.Labels, az)
+		setAZLabel(&dep.Spec.Template.Labels, az)
+	}
+
 	// inject FILER_NAME into the worker container.
 	injected := false
 	for i := range dep.Spec.Template.Spec.Containers {
@@ -531,6 +543,14 @@ func setLabels(labels *map[string]string, managedKey, managedVal, filerName, ser
 	(*labels)[managedKey] = managedVal
 	(*labels)[filerLabelKey] = filerName
 	(*labels)[serviceLabelKey] = service
+}
+
+// setAZLabel sets the availability-zone label, initializing the map if nil.
+func setAZLabel(labels *map[string]string, az string) {
+	if *labels == nil {
+		*labels = make(map[string]string)
+	}
+	(*labels)[azLabelKey] = az
 }
 
 // labelSelector returns the label selector used to list the Deployments this

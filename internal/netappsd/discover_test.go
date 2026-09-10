@@ -58,6 +58,40 @@ func newTestNetAppSD(t *testing.T, filers ...string) (*NetAppSD, string) {
 	return n, tplPath
 }
 
+// TestBuildDeploymentAZLabel verifies that a filer with an availability zone
+// produces a Deployment whose metadata and pod-template carry the AZ label, but
+// whose (immutable) selector does NOT — so a later AZ change cannot break the
+// reconcile Update. A filer without an AZ must carry no AZ label at all.
+func TestBuildDeploymentAZLabel(t *testing.T) {
+	n, _ := newTestNetAppSD(t)
+
+	t.Run("with AZ", func(t *testing.T) {
+		dep, err := n.buildDeployment(Filer{Name: "filer-a", Host: "filer-a.example", Service: "test", AvailabilityZone: "eu-de-1a"})
+		if err != nil {
+			t.Fatalf("buildDeployment: %v", err)
+		}
+		if got := dep.Labels[azLabelKey]; got != "eu-de-1a" {
+			t.Fatalf("deployment metadata AZ label = %q, want eu-de-1a", got)
+		}
+		if got := dep.Spec.Template.Labels[azLabelKey]; got != "eu-de-1a" {
+			t.Fatalf("pod template AZ label = %q, want eu-de-1a", got)
+		}
+		if _, ok := dep.Spec.Selector.MatchLabels[azLabelKey]; ok {
+			t.Fatalf("AZ label must not be in the immutable selector, but it is present")
+		}
+	})
+
+	t.Run("without AZ", func(t *testing.T) {
+		dep, err := n.buildDeployment(Filer{Name: "filer-b", Host: "filer-b.example", Service: "test"})
+		if err != nil {
+			t.Fatalf("buildDeployment: %v", err)
+		}
+		if _, ok := dep.Spec.Template.Labels[azLabelKey]; ok {
+			t.Fatalf("expected no AZ label when filer AZ is empty, but it is present")
+		}
+	})
+}
+
 func writeTemplate(t *testing.T, path, image string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(fmt.Sprintf(testTemplate, image)), 0o600); err != nil {
