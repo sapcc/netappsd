@@ -133,7 +133,7 @@ func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*Filer, error
 
 	// Set filer label; remove filer from queue on success.
 	nextFiler := n.filerQueue[0]
-	if err := n.setFilerLabelForPod(ctx, podName, nextFiler.Name); err != nil {
+	if err := n.setFilerLabelForPod(ctx, podName, nextFiler); err != nil {
 		return nil, err
 	}
 	n.filerQueue = n.filerQueue[1:]
@@ -147,13 +147,16 @@ func (n *NetAppSD) NextFiler(ctx context.Context, podName string) (*Filer, error
 	return &nextFiler, nil
 }
 
-func (n *NetAppSD) setFilerLabelForPod(ctx context.Context, podName, value string) error {
+func (n *NetAppSD) setFilerLabelForPod(ctx context.Context, podName string, filer Filer) error {
 	pod, err := n.kubeClientset.CoreV1().Pods(n.Namespace).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get pod: %s", err)
 	}
-	slog.Info("set pod label", "filer", value, "pod", podName)
-	pod.Labels["filer"] = value
+	slog.Info("set pod label", "filer", filer.Name, "pod", podName)
+	pod.Labels["filer"] = filer.Name
+	if filer.AvailabilityZone != "" {
+		pod.Labels["availability-zone"] = filer.AvailabilityZone
+	}
 	_, err = n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, pod, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update pod: %s", err)
@@ -169,6 +172,7 @@ func (n *NetAppSD) clearFilerLabelForPod(ctx context.Context, podName string) er
 	if _, found := pod.Labels["filer"]; found {
 		slog.Info("delete filer label from pod", "pod", podName)
 		delete(pod.Labels, "filer")
+		delete(pod.Labels, "availability-zone")
 		_, err = n.kubeClientset.CoreV1().Pods(n.Namespace).Update(ctx, pod, metav1.UpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to update pod: %s", err)
